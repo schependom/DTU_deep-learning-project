@@ -1,0 +1,11 @@
+# latex
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.bcg
+*.blg
+
+# macos
+.DS_Store
