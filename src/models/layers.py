@@ -4,9 +4,9 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-#try:
+# try:
 #    from flash_attn_interface import flash_attn_func  # type: ignore[import]
-#except ImportError:
+# except ImportError:
 #    # Fallback to FlashAttention 2
 #    from flash_attn import flash_attn_func  # type: ignore[import]
 from torch.nn.functional import scaled_dot_product_attention
@@ -24,7 +24,7 @@ def _find_multiple(a, b):
 def rotate_half(x: torch.Tensor):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]
+    x2 = x[..., x.shape[-1] // 2:]
     return torch.cat((-x2, x1), dim=-1)
 
 
@@ -49,7 +49,8 @@ class CastedLinear(nn.Module):
         super().__init__()
         # Truncated LeCun normal init
         self.weight = nn.Parameter(
-            trunc_normal_init_(torch.empty((out_features, in_features)), std=1.0 / (in_features ** 0.5))
+            trunc_normal_init_(torch.empty(
+                (out_features, in_features)), std=1.0 / (in_features ** 0.5))
         )
         self.bias = None
         if bias:
@@ -61,6 +62,11 @@ class CastedLinear(nn.Module):
 
 
 class CastedEmbedding(nn.Module):
+    """
+    Creates an embedding layer with weights initialized using truncated LeCun normal initialization.
+    This is a fully connected layer that maps from discrete token indices to dense vectors, casted to a specified data type (cast_to).
+    """
+
     def __init__(self,
                  num_embeddings: int,
                  embedding_dim: int,
@@ -71,10 +77,19 @@ class CastedEmbedding(nn.Module):
 
         # Truncated LeCun normal init
         self.embedding_weight = nn.Parameter(
-            trunc_normal_init_(torch.empty((num_embeddings, embedding_dim)), std=init_std)
+            trunc_normal_init_(torch.empty(
+                (num_embeddings, embedding_dim)), std=init_std)
         )
-        
+
     def forward(self, input: torch.Tensor) -> torch.Tensor:
+        """
+        Maps discrete token indices to dense vectors. 
+
+        Args:
+            input (torch.Tensor): A tensor of token indices with shape (..., sequence_length).
+        Returns:
+            torch.Tensor: A tensor of shape (..., sequence_length, embedding_dim) containing the corresponding dense vectors.
+        """
         return F.embedding(input, self.embedding_weight.to(self.cast_to))
 
 
@@ -83,8 +98,10 @@ class RotaryEmbedding(nn.Module):
         super().__init__()
 
         # RoPE
-        inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim))
-        t = torch.arange(max_position_embeddings, dtype=torch.float32, device=device)
+        inv_freq = 1.0 / \
+            (base ** (torch.arange(0, dim, 2, dtype=torch.float32, device=device) / dim))
+        t = torch.arange(max_position_embeddings,
+                         dtype=torch.float32, device=device)
         freqs = torch.outer(t, inv_freq)
 
         # Different from paper, but it uses a different permutation in order to obtain the same calculation
@@ -107,8 +124,10 @@ class Attention(nn.Module):
         self.num_key_value_heads = num_key_value_heads
         self.causal = causal
 
-        self.qkv_proj = CastedLinear(self.hidden_size, (self.num_heads + 2 * self.num_key_value_heads) * self.head_dim, bias=False)
-        self.o_proj = CastedLinear(self.output_size, self.hidden_size, bias=False)
+        self.qkv_proj = CastedLinear(
+            self.hidden_size, (self.num_heads + 2 * self.num_key_value_heads) * self.head_dim, bias=False)
+        self.o_proj = CastedLinear(
+            self.output_size, self.hidden_size, bias=False)
 
     def forward(self, cos_sin: CosSin, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, seq_len, _ = hidden_states.shape
@@ -117,9 +136,11 @@ class Attention(nn.Module):
         qkv = self.qkv_proj(hidden_states)
 
         # Split head
-        qkv = qkv.view(batch_size, seq_len, self.num_heads + 2 * self.num_key_value_heads, self.head_dim)
+        qkv = qkv.view(batch_size, seq_len, self.num_heads +
+                       2 * self.num_key_value_heads, self.head_dim)
         query = qkv[:, :, :self.num_heads]
-        key = qkv[:, :, self.num_heads: self.num_heads + self.num_key_value_heads]
+        key = qkv[:, :, self.num_heads: self.num_heads +
+                  self.num_key_value_heads]
         value = qkv[:, :, self.num_heads + self.num_key_value_heads:]
 
         # RoPE
@@ -128,11 +149,16 @@ class Attention(nn.Module):
             query, key = apply_rotary_pos_emb(query, key, cos, sin)
 
         # flash attn
-        query, key, value = map(lambda t: einops.rearrange(t, 'B S H D -> B H S D'), (query, key, value)) # needed for scaled_dot_product_attention but not flash_attn_func
-        attn_output = scaled_dot_product_attention(query=query, key=key, value=value, is_causal=self.causal)
+        # needed for scaled_dot_product_attention but not flash_attn_func
+        query, key, value = map(lambda t: einops.rearrange(
+            t, 'B S H D -> B H S D'), (query, key, value))
+        attn_output = scaled_dot_product_attention(
+            query=query, key=key, value=value, is_causal=self.causal)
         attn_output = einops.rearrange(attn_output, 'B H S D -> B S H D')
-        attn_output = attn_output.view(batch_size, seq_len, self.output_size)  # type: ignore
+        attn_output = attn_output.view(
+            batch_size, seq_len, self.output_size)  # type: ignore
         return self.o_proj(attn_output)
+
 
 class LinearSwish(nn.Module):
     def __init__(self, hidden_size: int, reverse=False):
@@ -154,11 +180,12 @@ class SwiGLU(nn.Module):
         inter = _find_multiple(round(expansion * hidden_size * 2 / 3), 256)
 
         self.gate_up_proj = CastedLinear(hidden_size, inter * 2, bias=False)
-        self.down_proj    = CastedLinear(inter, hidden_size, bias=False)
+        self.down_proj = CastedLinear(inter, hidden_size, bias=False)
 
     def forward(self, x):
         gate, up = self.gate_up_proj(x).chunk(2, dim=-1)
         return self.down_proj(F.silu(gate) * up)
+
 
 def rms_norm(hidden_states: torch.Tensor, variance_epsilon: float) -> torch.Tensor:
     input_dtype = hidden_states.dtype
