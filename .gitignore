@@ -1,11 +1,12 @@
 # latex
-*.aux
-*.log
-*.out
-*.toc
-*.bbl
-*.bcg
-*.blg
+*/*.aux
+*/*.log
+*/*.out
+*/*.toc
+*/*.bbl
+*/*.bcg
+*/*.blg
+*/*.synctex.gz
 
 # macos
 .DS_Store

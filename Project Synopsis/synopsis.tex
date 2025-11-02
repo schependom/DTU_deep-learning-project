@@ -8,6 +8,7 @@
 
 \usepackage{url}
 \usepackage{hyperref}
+
 \usepackage{subcaption}
 
 \title{Recursive Reasoning with Tiny Networks}
@@ -20,35 +21,56 @@
 }
 \date{\today}
 
+
+
 \begin{document}
 
 	\maketitle
 
-	\subsection*{Tiny Recursive Models (TRMs)}
+	\subsection*{Background and motivation}
 
-	Tiny Recursive Models (TRMs) are a novel class of compact recursive reasoning networks proposed as a simpler and more efficient alternative to the Hierarchical Reasoning Model (HRM). Whereas HRM relies on two separate Transformer-based modules operating at different temporal frequencies, TRM achieves superior generalization with a single two-layer network of merely 7 million parameters. The model iteratively refines its latent representation and output through recursive updates, allowing it to improve solutions in a parameter-efficient manner. Despite its minimal size, TRM outperforms HRM and large-scale language models (LLMs) such as Gemini 2.5 Pro and DeepSeek R1 on challenging reasoning benchmarks including Sudoku, Maze, and ARC-AGI.
+	In Natural Language Processing, the dominant paradigm is the transformer. In recent years the evolution of this paradigm has involved larger and larger models, with exponential growth in parameters and required computation. Even then, these Large Language Models (LLMs) struggle with complicated tasks requiring thorough reasoning. As reasoning is handled in test-time computing, their auto-regressive token-based nature as well as context length- and self attention limitations makes reasoning fall apart as complexity is introduced. Errors compound and eventually turn into nonsense or false answers, further degrading performance. In other words, the jack-of-all-trades nature of LLMs severely hinders its potential for growth.
 
-	\subsection*{Motivation}
+	\subsubsection*{Tiny Recursive Models (TRMs)}
 
-	In Natural Language Processing and reasoning tasks, performance has traditionally scaled with model size. However, large autoregressive LLMs are prone to compounding errors and struggle with tasks requiring multi-step logical reasoning. Techniques such as Chain-of-Thought prompting and Test-Time Compute improve reasoning quality but incur high computational cost. HRM demonstrated that small recursive architectures can outperform LLMs on structured puzzles, yet its theoretical grounding and complexity limit practicality. TRM aims to retain the benefits of recursion and deep supervision while removing unnecessary biological analogies, fixed-point assumptions, and redundant networks, offering a compact and interpretable reasoning framework.
-
-	\subsection*{Background}
-
-	HRM combines two networks, $f_L$ and $f_H$, that recursively update latent features $(z_L, z_H)$ across multiple supervision steps using a one-step gradient approximation derived from the Implicit Function Theorem. This enables very deep effective computation without explicit backpropagation through time, but requires complex halting mechanisms (Adaptive Computational Time, ACT) and multiple forward passes. TRM simplifies this by: (1) using a single recursion function over both the latent feature $z$ and the current solution $y$, (2) fully backpropagating through each recursion step instead of using fixed-point approximations, and (3) introducing Exponential Moving Average (EMA) for stability. The result is a biologically agnostic yet empirically powerful approach that generalizes better on small datasets.
+	Joliceur-Martineau \cite{paper} defines the Tiny Recursive Model (TRM). Based on a similar model (HRM) inspired by the hierarchy of the brain (Wang et al. \cite{wang2025hierarchicalreasoningmodel}), the TRM attempts to solve the above mentioned issues by handling reasoning latently, rather than in lossy token representation. The TRM handles reasoning entirely in its latent space, by recursively updating its latent variable through multiple supervision steps. This allows complex representation of the problem and reasoning state. Additionally, the paper shows that all of this can be handled with tiny models - at least relative to the ordinary size of an LLM. This represents a potential new paradigm for reasoning in language modeling.
 
 	\subsection*{Milestones}
 
+	We aim to accomplish the following:
+
 	\begin{description}
-		\item[Verifying the replacement of attention by MLPs:] Self-attention excels for long contexts where $L \gg D$, but for small fixed-size grids ($L \leq D$), TRM replaces attention with an MLP along the sequence dimension, improving generalization on Sudoku-Extreme from 74.7\% to 87.4\%.
-		\item[Verifying that adding more layers leads to overfitting:] Reducing the network depth from four to two layers while scaling the number of recursions $n$ preserved effective depth but reduced overfitting, making two layers the optimal trade-off between capacity and generalization.
-		\item[Verifying the removal of the continue loss:] By removing the ``continue'' loss from ACT and retaining only a binary halting objective, TRM eliminates the need for a second forward pass without reducing accuracy.
-		\item[Increasing the number of recursions for hard problems:] Experiments show that $T = 3$ and $n = 6$ (42 recursive steps) yield optimal accuracy for Sudoku; deeper recursion could improve performance on more complex tasks.
-		\item[Testing the TRM on different puzzles:] TRM achieved 87.4\% on Sudoku-Extreme, 85.3\% on Maze-Hard, 44.6\% on ARC-AGI-1, and 7.8\% on ARC-AGI-2—exceeding HRM and most LLMs while using under 0.01\% of their parameters.
+		% 	\item[Verifying the replacement of attention by MLP's]
+		% 	Self-attention is good when $L \gg D$, i.e. the input length is way bigger than the embedding dimension. This is because we only need a $D \times 3D$ matrix for the keys, queries and values. But for $L \leq D$, we can use a linear map from $\mathbb{R}^{L}$ to $\mathbb{R}^{L}$ instead, which only requires an $L \times L$ matrix. This means that for small models, according to the authors, we can replace attention with MLP's.
+		% 	\item[Verifying that adding more layers leads to overfitting and 2 layers is optimal]
+		% 	Decreasing the number of layers, while scaling the number of recursions $n$ proportionally, the authors found that using 2 layers (instead of 4 layers) maximized generalization.
+		% 	\item[Verifying the removal of the continue loss] By removing the continue loss with Adaptive computational time (ACT), there's supposedly no need for the expensive second forward pass, while still being able to determine when to
+		% 	halt with relatively good accuracy.
+		\item[Reproducing the main results of the original paper]
+		\item[Testing the TRM on different puzzles, comparing it to other models]
+		We would like to try out the Towers of Hanoi, as well as a board game, like chess. For the latter, we could evaluate moves made by the TRM using a chess engine.
+		\item[Experimenting with language generation]
+		As mentioned in the paper, it would be interesting to see how the TRM performs at producing natural language output.
 	\end{description}
 
-	\nocite{paper}
+	% The authors found that $T=3$ (latent) recursion processes, each containing $n=6$ evaluations of $f$ was optimal for Sudoku-Extreme, but mentioned that they did not test more than $T \cdot n = 42$ total recursions due to limited resources. However, the authors did \textit{not} mention the specific hardware they used. We could try to increase the number of recursions, assuming DTU HPC is more powerful than the authors' resources.
+
 
 	\bibliographystyle{unsrt}
 	\bibliography{citations}
+
+	\vspace{0.7cm}
+
+	\begin{table}[h!]
+		\centering
+		\begin{tabular}{l | l}
+			\textbf{Name} & \textbf{Study number} \\
+			\hline
+			Vincent Van Schependom & s251739 \\
+			Malthe Bresler & s214631 \\
+			Sara Maria Bjørn Andersen & s202186\\
+			Jacob Corkill Nielsen & s204093
+		\end{tabular}
+	\end{table}
 
 \end{document}
