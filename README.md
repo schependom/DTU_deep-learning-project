@@ -1,6 +1,6 @@
 # Tiny Recursive Models (TRMs)
 
-## Setup
+## Setup (local, CPU friendly)
 
 ### Python Environment
 
