@@ -24,6 +24,10 @@ from models.sparse_embedding import CastedSparseEmbeddingSignSGD_Distributed
 from models.ema import EMAHelper
 
 from torch.optim import Adam as adam
+from device_helper import get_device
+
+device = get_device()
+
 
 
 class LossConfig(pydantic.BaseModel):
@@ -132,25 +136,23 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     # Create a ACTLossHead instance based on trm.yaml to compute the losses
     loss_head_cls = load_model_class(config.arch.loss.name)
 
-    with torch.device("cuda"):
+    # Create the actual model
+    model: nn.Module = model_cls(model_cfg).to(device)
+    print(model)
 
-        # Create the actual model
-        model: nn.Module = model_cls(model_cfg)
-        print(model)
-        model = loss_head_cls(
-            model, **config.arch.loss.__pydantic_extra__)  # type: ignore
-        if "DISABLE_COMPILE" not in os.environ:
-            model = torch.compile(model)  # type: ignore
+    model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
+    if "DISABLE_COMPILE" not in os.environ:
+        model = torch.compile(model)  # type: ignore
 
-        # Load checkpoint
-        if rank == 0:
-            load_checkpoint(model, config)
+    # Load checkpoint
+    if rank == 0:
+        load_checkpoint(model, config)
 
-        # Broadcast parameters from rank 0
-        if world_size > 1:
-            with torch.no_grad():
-                for param in list(model.parameters()) + list(model.buffers()):
-                    dist.broadcast(param, src=0)
+    # Broadcast parameters from rank 0
+    if world_size > 1:
+        with torch.no_grad():
+            for param in list(model.parameters()) + list(model.buffers()):
+                dist.broadcast(param, src=0)
 
     # Optimizers and lr
     if config.arch.puzzle_emb_ndim == 0:
@@ -260,7 +262,7 @@ def load_checkpoint(model: nn.Module, config: PretrainConfig):
         print(f"Loading checkpoint {config.load_checkpoint}")
 
         # Load state dict
-        state_dict = torch.load(config.load_checkpoint, map_location="cuda")
+        state_dict = torch.load(config.load_checkpoint, map_location=device)
 
         # Resize and reset puzzle emb if needed
         puzzle_emb_name = "_orig_mod.model.inner.puzzle_emb.weights"
@@ -309,13 +311,12 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
         return
 
     # To device
-    batch = {k: v.cuda() for k, v in batch.items()}
+    batch = {k: v.to(device) for k, v in batch.items()}
 
     # Init carry if it is None
     if train_state.carry is None:
-        with torch.device("cuda"):
-            train_state.carry = train_state.model.initial_carry(
-                batch)  # type: ignore
+        train_state.carry = train_state.model.initial_carry(
+            batch)  # type: ignore
 
     # Forward
     train_state.carry, loss, metrics, _, _ = train_state.model(
@@ -400,9 +401,8 @@ def evaluate(
                 print(f"Processing batch {processed_batches}: {set_name}")
 
             # To device
-            batch = {k: v.cuda() for k, v in batch.items()}
-            with torch.device("cuda"):
-                carry = train_state.model.initial_carry(batch)  # type: ignore
+            batch = {k: v.to(device) for k, v in batch.items()}
+            carry = train_state.model.initial_carry(batch)  # type: ignore
 
             # Forward
             inference_steps = 0
@@ -438,7 +438,7 @@ def evaluate(
                     sorted(metrics.keys())
                 )  # Sort keys to guarantee all processes use the same order.
                 metric_values = torch.zeros(
-                    (len(set_ids), len(metrics.values())), dtype=torch.float32, device="cuda"
+                    (len(set_ids), len(metrics.values())), dtype=torch.float32, device=device
                 )
 
             metric_values[set_id] += torch.stack([metrics[k]
@@ -572,20 +572,23 @@ def launch(hydra_config: DictConfig):
 
     # Initialize distributed training if in distributed environment (e.g. torchrun)
     if "LOCAL_RANK" in os.environ:
-        # Initialize distributed, default device and dtype
-        dist.init_process_group(backend="nccl")
+        local_rank = int(os.environ["LOCAL_RANK"])
 
+        if device.type == "cuda":
+            torch.cuda.set_device(local_rank)
+            backend = "nccl"
+        elif device.type == "mps":
+            backend = "gloo"  # MPS doesn’t support NCCL
+        else:
+            backend = "gloo"  # CPU
+
+        dist.init_process_group(backend=backend)
         RANK = dist.get_rank()
         WORLD_SIZE = dist.get_world_size()
 
-        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-
-        # CPU GLOO process group
-        CPU_PROCESS_GROUP = dist.new_group(backend="gloo")
-        assert (
-            dist.get_rank(CPU_PROCESS_GROUP) == RANK and dist.get_world_size(
-                CPU_PROCESS_GROUP) == WORLD_SIZE
-        )
+        # Optional CPU process group if you really need it
+        if backend == "gloo":
+            CPU_PROCESS_GROUP = dist.new_group(backend="gloo")
 
     # Load sync'ed config
     config = load_synced_config(hydra_config, rank=RANK, world_size=WORLD_SIZE)
