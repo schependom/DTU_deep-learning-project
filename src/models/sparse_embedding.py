@@ -25,9 +25,11 @@ class CastedSparseEmbedding(nn.Module):
         )
 
         # Local weights and IDs
-        # Local embeddings, with gradient, not persistent
-        self.local_weights = nn.Buffer(torch.zeros(
-            batch_size, embedding_dim, requires_grad=True), persistent=False)
+        # Local embeddings with gradient. Use Parameter so it remains a leaf across .to()/device moves.
+        # Note: we do NOT want Adam or other global optimizers to touch this; the training loop filters it out.
+        self.local_weights = nn.Parameter(
+            torch.zeros(batch_size, embedding_dim), requires_grad=True
+        )
         # Local embedding IDs, not persistent
         self.local_ids = nn.Buffer(torch.zeros(
             batch_size, dtype=torch.int32), persistent=False)

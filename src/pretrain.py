@@ -29,7 +29,6 @@ from device_helper import get_device
 device = get_device()
 
 
-
 class LossConfig(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(extra='allow')
     name: str
@@ -114,7 +113,7 @@ def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size:
         batch_size=None,
         num_workers=1,
         prefetch_factor=8,
-        pin_memory=True,
+        pin_memory=(device.type == "cuda"),  # avoid MPS warning
         persistent_workers=True
     )
     return dataloader, dataset.metadata
@@ -140,9 +139,25 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
     model: nn.Module = model_cls(model_cfg).to(device)
     print(model)
 
-    model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
-    if "DISABLE_COMPILE" not in os.environ:
-        model = torch.compile(model)  # type: ignore
+    model = loss_head_cls(
+        model, **config.arch.loss.__pydantic_extra__)  # type: ignore
+
+    model.to(device)
+
+    # Only compile on CUDA; fallback to eager if it fails
+    if ("DISABLE_COMPILE" not in os.environ) and (device.type != "mps"):
+        try:
+            model = torch.compile(model)  # type: ignore
+            if rank == 0:
+                print("torch.compile enabled (CUDA).")
+        except Exception as e:
+            if rank == 0:
+                print(
+                    f"torch.compile failed: {e}. Falling back to eager mode.")
+    else:
+        if rank == 0:
+            reason = "env flag DISABLE_COMPILE is set" if "DISABLE_COMPILE" in os.environ else f"device is {device.type}, skipping compile"
+            print(f"Skipping torch.compile: {reason}.")
 
     # Load checkpoint
     if rank == 0:
@@ -161,7 +176,7 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
                 model.parameters(),
                 lr=0,  # Needs to be set by scheduler
                 weight_decay=config.weight_decay,
-                # betas=(config.beta1, config.beta2)
+                betas=(config.beta1, config.beta2)
             )
         ]
         optimizer_lrs = [
@@ -191,7 +206,7 @@ def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, 
                 model.parameters(),
                 lr=0,  # Needs to be set by scheduler
                 weight_decay=config.weight_decay,
-                # betas=(config.beta1, config.beta2)
+                betas=(config.beta1, config.beta2)
             )
         ]
         optimizer_lrs = [
@@ -315,8 +330,11 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
 
     # Init carry if it is None
     if train_state.carry is None:
-        train_state.carry = train_state.model.initial_carry(
-            batch)  # type: ignore
+
+        with torch.device(device):
+
+            train_state.carry = train_state.model.initial_carry(
+                batch)  # type: ignore
 
     # Forward
     train_state.carry, loss, metrics, _, _ = train_state.model(

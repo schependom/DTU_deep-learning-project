@@ -16,3 +16,8 @@ src/dataset/__pycache__/
 src/dataset/data
 
 data/
+**/__pycache__/
+
+src/outputs/
+src/wandb/
+src/checkpoints/
