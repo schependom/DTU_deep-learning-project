@@ -96,3 +96,71 @@ The `_iter_test` function does this:
 3. Distribute across GPUs
 
 This ensures we evaluate on every single example exactly once.
+
+## Small CPU-size datasets
+
+### Small sudoku
+
+To generate a small sudoku dataset for CPU testing, run:
+
+```bash
+python dataset/build_sudoku_dataset.py --output-dir data/sudoku-small --subsample-size 10 --num-aug 1
+```
+
+To train and evaluate on this dataset, run:
+
+```bash
+bash train-local-sudoku.sh
+```
+
+## Hanoi
+
+### Generate the data
+
+```bash
+cd src
+python dataset/build_hanoi.py
+```
+
+This will generate the `train/` and `test/` data in the folder `src/data/hanoi/`.
+
+### Training
+
+To train on one GPU, from the `src/` folder, run:
+
+```bash
+run_name="pretrain_mlp_t_hanoi"
+python pretrain.py \
+arch=trm \
+data_paths="[data/hanoi]" \
+evaluators="[]" \
+epochs=50000 eval_interval=5000 \
+lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
+arch.mlp_t=True arch.pos_encodings=none \
+arch.L_layers=2 \
+arch.H_cycles=3 arch.L_cycles=6 \
++run_name=${run_name} ema=True
+```
+
+Or on MPS:
+
+```bash
+run_name="pretrain_mlp_t_hanoi_mps"
+python pretrain.py \
+arch=trm \
+data_paths="[data/hanoi]" \
+evaluators="[]" \
+epochs=500 eval_interval=5000 \
+lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
+arch.mlp_t=True arch.pos_encodings=none \
+arch.L_layers=2 \
+arch.H_cycles=3 arch.L_cycles=6 \
+arch.forward_dtype=float32 \
++run_name=${run_name} ema=True
+```
+
+Or, to run based on `config/hanoi_config_gpu.yaml`:
+
+```bash
+python pretrain.py --config configs/hanoi_config.yaml
+```

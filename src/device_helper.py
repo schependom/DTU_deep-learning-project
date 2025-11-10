@@ -9,8 +9,8 @@ def get_device() -> torch.device:
         torch.device: The available device.
     """
     if torch.cuda.is_available():
-        return torch.device('cuda')
+        return torch.device("cuda")
     elif torch.backends.mps.is_available():
-        return torch.device('mps')
+        return torch.device("cpu")
     else:
-        return torch.device('cpu')
+        return torch.device("cpu")
