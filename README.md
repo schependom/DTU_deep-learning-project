@@ -119,7 +119,13 @@ bash train-local-sudoku.sh
 
 ```bash
 cd src
-python dataset/build_hanoi.py
+python dataset/build_hanoi_dataset.py <options>
+```
+
+You can view the options by running:
+
+```bash
+python dataset/build_hanoi_dataset.py --help
 ```
 
 This will generate the `train/` and `test/` data in the folder `src/data/hanoi/`.

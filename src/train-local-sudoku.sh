@@ -7,6 +7,7 @@ data_paths="[data/sudoku-small]" \
 evaluators="[]" \
 epochs=10 eval_interval=10 \
 global_batch_size=32 \
+lr_warmup_steps=10 \
 lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
 arch.mlp_t=True arch.pos_encodings=none \
 arch.L_layers=1 \

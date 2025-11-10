@@ -48,7 +48,7 @@ class DataProcessConfig(BaseModel):
     max_disks_train: int = 5
     # Test on 6, 7 disks (which the model has never seen)
     min_disks_test: int = 6
-    max_disks_test: int = 7
+    max_disks_test: int = 8
     # -------------------------------------------------
     seed: int = 42
 
