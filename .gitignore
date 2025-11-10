@@ -12,7 +12,11 @@
 .DS_Store
 
 # generated dataset
-src/dataset/__pycache__/
 src/dataset/data
 
 data/
+
+src/checkpoints/
+src/outputs
+src/wandb
+**/__pycache__/
