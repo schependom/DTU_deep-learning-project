@@ -86,7 +86,7 @@ First, load the correct Python module:
 
 ```bash
 module avail python3/3.10 # check available versions
-module load python/3.10.2 # load the right (available) version
+module load python3/3.10.12 # load the right (available) version
 ```
 
 #### Activating the existing virtual environment
@@ -98,7 +98,13 @@ Activate it (from within the `DTU_deep-learning-project/` folder!) with:
 source .venv/bin/activate
 ```
 
-You should see `(.venv)` appear at the beginning of the command line.
+You should see `(.venv)` appear at the beginning of the command line:
+
+```txt
+gbarlogin1(s251739) $ source .venv/bin/activate
+(.venv) /dtu/blackhole/08/156072/DTU_deep-learning-project
+```
+
 You can (but right now don't have to) deactivate the environment with:
 
 ```bash
