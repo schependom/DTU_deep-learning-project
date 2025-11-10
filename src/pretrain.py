@@ -131,7 +131,8 @@ def create_model(
     config: PretrainConfig,
     train_metadata: PuzzleDatasetMetadata,
     rank: int,
-    world_size: int,
+    world_size: int,  # world size is the number of processes/nodes used in distributed training
+    # in CPU training, world_size=1, because only one process is used
 ):
     model_cfg = dict(
         **config.arch.__pydantic_extra__,  # type: ignore
@@ -150,7 +151,10 @@ def create_model(
 
     # Create the actual model
     model: nn.Module = model_cls(model_cfg).to(device)
-    print(model)
+    if rank == 0:
+        print("--- Model Architecture ---")
+        print(model)
+        print("--------------------------")
 
     model = loss_head_cls(model, **config.arch.loss.__pydantic_extra__)  # type: ignore
 
@@ -180,12 +184,16 @@ def create_model(
 
     # Broadcast parameters from rank 0
     if world_size > 1:
+        if rank == 0:
+            print(f"Broadcasting model parameters to {world_size} processes.")
         with torch.no_grad():
             for param in list(model.parameters()) + list(model.buffers()):
                 dist.broadcast(param, src=0)
 
     # Optimizers and lr
     if config.arch.puzzle_emb_ndim == 0:
+        if rank == 0:
+            print("Using Adam optimizer for all parameters.")
         optimizers = [
             adam(
                 model.parameters(),
@@ -196,6 +204,10 @@ def create_model(
         ]
         optimizer_lrs = [config.lr]
     elif config.freeze_weights:
+        if rank == 0:
+            print(
+                "Using CastedSparseEmbeddingSignSGD_Distributed for puzzle_emb (weights frozen)."
+            )
         optimizers = [
             CastedSparseEmbeddingSignSGD_Distributed(
                 model.model.puzzle_emb.buffers(),  # type: ignore
@@ -206,15 +218,39 @@ def create_model(
         ]
         optimizer_lrs = [config.puzzle_emb_lr]
     else:
+        if rank == 0:
+            print(
+                "Using CastedSparseEmbeddingSignSGD_Distributed for puzzle_emb and Adam for rest."
+            )
+
+        # --- NEW FIX: Separate params/buffers for sparse optimizer ---
+
+        # 1. Get the 1 parameter AND 2 buffers for the sparse optimizer (total=3)
+        sparse_tensors = list(model.model.puzzle_emb.parameters()) + list(
+            model.model.puzzle_emb.buffers()
+        )
+
+        # 2. Get the *names* of the sparse parameters to exclude them from Adam
+        sparse_param_names = {n for n, p in model.model.puzzle_emb.named_parameters()}
+
+        # 3. Get all *other* parameters for Adam
+        adam_params = [
+            p for n, p in model.named_parameters() if n not in sparse_param_names
+        ]
+
+        if rank == 0:
+            print(f"  > Sparse optimizer tensors: {len(sparse_tensors)} (Expected 3)")
+            print(f"  > Adam optimizer parameters: {len(adam_params)}")
+
         optimizers = [
             CastedSparseEmbeddingSignSGD_Distributed(
-                model.model.puzzle_emb.buffers(),  # type: ignore
+                sparse_tensors,  # <-- Pass all 3 tensors here
                 lr=0,  # Needs to be set by scheduler
                 weight_decay=config.puzzle_emb_weight_decay,
                 world_size=world_size,
             ),
             adam(
-                model.parameters(),
+                adam_params,  # <-- Pass only the *other* params here
                 lr=0,  # Needs to be set by scheduler
                 weight_decay=config.weight_decay,
                 betas=(config.beta1, config.beta2),
@@ -300,9 +336,11 @@ def save_train_state(config: PretrainConfig, train_state: TrainState):
         return
 
     os.makedirs(config.checkpoint_path, exist_ok=True)
+    save_path = os.path.join(config.checkpoint_path, f"step_{train_state.step}.pth")
+    print(f"Saving checkpoint to {save_path}")
     torch.save(
         train_state.model.state_dict(),
-        os.path.join(config.checkpoint_path, f"step_{train_state.step}"),
+        save_path,
     )
 
 
@@ -463,7 +501,7 @@ def evaluate(
         for set_name, batch, global_batch_size in eval_loader:
             processed_batches += 1
             if rank == 0:
-                print(f"Processing batch {processed_batches}: {set_name}")
+                print(f"  Evaluating batch {processed_batches}: {set_name}")
 
             # To device
             batch = {k: v.to(device) for k, v in batch.items()}
@@ -481,7 +519,7 @@ def evaluate(
                     break
 
             if rank == 0:
-                print(f"  Completed inference in {inference_steps} steps")
+                print(f"    Completed inference in {inference_steps} steps")
 
             for collection in (batch, preds):
                 for k, v in collection.items():
@@ -549,37 +587,44 @@ def evaluate(
                     reduced_metrics[set_name] = {k: v / count for k, v in m.items()}
 
         # Run evaluators
-        if rank == 0:
-            print(f"\nRunning {len(evaluators)} evaluator(s)...")
-
-        for i, evaluator in enumerate(evaluators):
+        if len(evaluators) > 0:
             if rank == 0:
-                print(
-                    f"Running evaluator {i + 1}/{len(evaluators)}: {evaluator.__class__.__name__}"
+                print(f"\nRunning {len(evaluators)} evaluator(s)...")
+
+            for i, evaluator in enumerate(evaluators):
+                if rank == 0:
+                    print(
+                        f"Running evaluator {i + 1}/{len(evaluators)}: {evaluator.__class__.__name__}"
+                    )
+
+                # Path for saving
+                evaluator_save_path = None
+                if config.checkpoint_path is not None:
+                    evaluator_save_path = os.path.join(
+                        config.checkpoint_path,
+                        f"evaluator_{evaluator.__class__.__name__}_step_{train_state.step}",
+                    )
+                    os.makedirs(evaluator_save_path, exist_ok=True)
+
+                # Run and log
+                metrics = evaluator.result(
+                    evaluator_save_path,
+                    rank=rank,
+                    world_size=world_size,
+                    group=cpu_group,
                 )
+                if rank == 0 and metrics is not None:
+                    if reduced_metrics is None:
+                        reduced_metrics = {}
 
-            # Path for saving
-            evaluator_save_path = None
-            if config.checkpoint_path is not None:
-                evaluator_save_path = os.path.join(
-                    config.checkpoint_path,
-                    f"evaluator_{evaluator.__class__.__name__}_step_{train_state.step}",
-                )
-                os.makedirs(evaluator_save_path, exist_ok=True)
+                    reduced_metrics.update(metrics)
+                    print(f"  Completed {evaluator.__class__.__name__}")
 
-            # Run and log
-            metrics = evaluator.result(
-                evaluator_save_path, rank=rank, world_size=world_size, group=cpu_group
-            )
-            if rank == 0 and metrics is not None:
-                if reduced_metrics is None:
-                    reduced_metrics = {}
-
-                reduced_metrics.update(metrics)
-                print(f"  Completed {evaluator.__class__.__name__}")
-
-        if rank == 0:
-            print("All evaluators completed!")
+            if rank == 0:
+                print("All evaluators completed!")
+        else:
+            if rank == 0:
+                print("No evaluators to run.")
 
     return reduced_metrics
 
@@ -634,6 +679,7 @@ def load_synced_config(
         objects = [config]
 
     if world_size > 1:
+        print(f"Rank {rank}: Broadcasting config from Rank 0.")
         dist.broadcast_object_list(objects, src=0)
 
     return objects[0]  # type: ignore
@@ -657,6 +703,7 @@ def launch(hydra_config: DictConfig):
         else:
             backend = "gloo"  # CPU
 
+        print(f"Initializing distributed process group with backend '{backend}'...")
         dist.init_process_group(backend=backend)
         RANK = dist.get_rank()
         WORLD_SIZE = dist.get_world_size()
@@ -667,6 +714,21 @@ def launch(hydra_config: DictConfig):
 
     # Load sync'ed config
     config = load_synced_config(hydra_config, rank=RANK, world_size=WORLD_SIZE)
+
+    # --- ADDED: Start of new logging ---
+    if RANK == 0:
+        print("\n" + "=" * 50)
+        print("--- 🚀 PRETRAIN SCRIPT STARTED 🚀 ---")
+        print(f"Run Name:         {config.run_name}")
+        print(f"Device:           {device}")
+        print(
+            f"Distributed Mode: {WORLD_SIZE > 1} (Rank: {RANK}, World Size: {WORLD_SIZE})"
+        )
+        print(f"Checkpoint Path:  {config.checkpoint_path}")
+        print(f"Data Path:        {config.data_paths}")
+        print(f"Epochs:           {config.epochs} (Eval every {config.eval_interval})")
+        print("=" * 50 + "\n")
+    # --- ADDED: End of new logging ---
 
     # Seed RNGs to ensure consistency
     torch.random.manual_seed(config.seed + RANK)
@@ -681,6 +743,8 @@ def launch(hydra_config: DictConfig):
         "Eval interval must be a divisor of total epochs."
     )
 
+    if RANK == 0:
+        print("--- 💾 Loading Data... ---")
     train_loader, train_metadata = create_dataloader(
         config,
         "train",
@@ -701,25 +765,56 @@ def launch(hydra_config: DictConfig):
             world_size=WORLD_SIZE,
         )
     except:
-        print("NO EVAL DATA FOUND")
+        if RANK == 0:
+            print("WARNING: No evaluation data found.")
         eval_loader = eval_metadata = None
 
     try:
         evaluators = create_evaluators(config, eval_metadata)
     except:
-        print("No evaluator found")
+        if RANK == 0:
+            print("No evaluators found.")
         evaluators = []
 
+    # --- ADDED: Logging for dataset ---
+    if RANK == 0:
+        print("--- Data Loaded ---")
+        print(
+            f"Train Metadata: {train_metadata.vocab_size} vocab, {train_metadata.seq_len} seq len, {train_metadata.total_groups} groups"
+        )
+        if eval_metadata:
+            print(
+                f"Eval Metadata: {eval_metadata.vocab_size} vocab, {eval_metadata.seq_len} seq len, {eval_metadata.total_groups} groups"
+            )
+        print(
+            f"Total Iterations: {total_iters} ({train_epochs_per_iter} epochs per iter)"
+        )
+        print("-" * 50 + "\n")
+    # --- ADDED: End of new logging ---
+
     # Train state
+    if RANK == 0:
+        print("--- 🧠 Initializing Model & Train State... ---")
     train_state = init_train_state(
         config, train_metadata, rank=RANK, world_size=WORLD_SIZE
     )
+
+    # --- ADDED: Logging for model ---
+    if RANK == 0:
+        print(f"--- Model Initialized ---")
+        print(f"Total training steps estimated: {train_state.total_steps}")
+        print(f"Using EMA (Exponential Moving Average): {config.ema}")
+        print(
+            f"Total Parameters: {sum(x.numel() for x in train_state.model.parameters())}"
+        )
+        print("-" * 50 + "\n")
+    # --- ADDED: End of new logging ---
 
     # Progress bar and logger
     progress_bar = None
     ema_helper = None
     if RANK == 0:
-        progress_bar = tqdm.tqdm(total=train_state.total_steps)
+        progress_bar = tqdm.tqdm(total=train_state.total_steps, desc="Training")
         wandb.init(
             project=config.project_name,
             name=config.run_name,
@@ -732,19 +827,26 @@ def launch(hydra_config: DictConfig):
         )
         save_code_and_config(config)
     if config.ema:
-        print("Setup EMA")
+        if RANK == 0:
+            print("Setting up EMA Helper...")
         ema_helper = EMAHelper(mu=config.ema_rate)
         ema_helper.register(train_state.model)
 
     # Training Loop
+    if RANK == 0:
+        print("--- 🔥 Starting Training Loop ---")
+
+    # 1 iteration = train_epochs_per_iter epochs
     for _iter_id in range(total_iters):
-        print(
-            f"[Rank {RANK}, World Size {WORLD_SIZE}]: Epoch {_iter_id * train_epochs_per_iter}"
-        )
+        current_epoch = _iter_id * train_epochs_per_iter
+        if RANK == 0:
+            print(
+                f"\n--- Iteration {_iter_id + 1}/{total_iters} (Starting Epoch {current_epoch}) ---"
+            )
 
         # Train Iter
         if RANK == 0:
-            print("TRAIN")
+            print("Mode: 🏋️ TRAINING")
         train_state.model.train()
         for set_name, batch, global_batch_size in train_loader:
             metrics = train_batch(
@@ -759,19 +861,32 @@ def launch(hydra_config: DictConfig):
             if RANK == 0 and metrics is not None:
                 wandb.log(metrics, step=train_state.step)
                 progress_bar.update(train_state.step - progress_bar.n)  # type: ignore
+
+                # --- MODIFIED: Add metrics to progress bar ---
+                postfix_metrics = {
+                    k.replace("train/", ""): f"{v:.4f}" for k, v in metrics.items()
+                }
+                progress_bar.set_postfix(postfix_metrics)
+                # --- END MODIFICATION ---
+
             if config.ema:
                 ema_helper.update(train_state.model)
 
-        if _iter_id >= config.min_eval_interval:
+        if _iter_id >= config.min_eval_interval and eval_loader is not None:
             # Evaluation
             if RANK == 0:
-                print("EVALUATE")
+                print(
+                    f"\nMode: 📊 EVALUATING (After Epoch {current_epoch + train_epochs_per_iter - 1})"
+                )
+
             if config.ema:
-                print("SWITCH TO EMA")
+                if RANK == 0:
+                    print("Switching to EMA model for evaluation...")
                 train_state_eval = copy.deepcopy(train_state)
                 train_state_eval.model = ema_helper.ema_copy(train_state_eval.model)
             else:
                 train_state_eval = train_state
+
             train_state_eval.model.eval()
             metrics = evaluate(
                 config,
@@ -785,11 +900,12 @@ def launch(hydra_config: DictConfig):
             )
 
             if RANK == 0 and metrics is not None:
+                print(f"Evaluation Metrics: {metrics}")
                 wandb.log(metrics, step=train_state.step)
 
             # Checkpointing
             if RANK == 0:
-                print("SAVE CHECKPOINT")
+                print("Mode: 💾 CHECKPOINTING")
             if RANK == 0 and (
                 config.checkpoint_every_eval or (_iter_id == total_iters - 1)
             ):
@@ -798,10 +914,18 @@ def launch(hydra_config: DictConfig):
             if config.ema:
                 del train_state_eval
 
+        elif eval_loader is None and RANK == 0:
+            print("\nSkipping evaluation as no eval_loader is available.")
+
     # finalize
+    if RANK == 0:
+        print("\n--- ✅ Training Complete ---")
+        if progress_bar:
+            progress_bar.close()
     if dist.is_initialized():
         dist.destroy_process_group()
-    wandb.finish()
+    if wandb.run:
+        wandb.finish()
 
 
 if __name__ == "__main__":

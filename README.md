@@ -104,7 +104,7 @@ This ensures we evaluate on every single example exactly once.
 To generate a small sudoku dataset for CPU testing, run:
 
 ```bash
-python dataset/build_sudoku_dataset.py --output-dir data/sudoku-small --subsample-size 10 --num-aug 1
+python dataset/build_easy_sudoku_dataset.py --output-dir data/sudoku-small --subsample-size 100 --num-aug 1
 ```
 
 To train and evaluate on this dataset, run:
