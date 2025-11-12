@@ -89,6 +89,12 @@ module avail python3/3.10 # check available versions
 module load python3/3.10.12 # load the right (available) version
 ```
 
+Also load CUDA (otherwise Adam-atan2 won't install):
+
+```bash
+module load cuda/12.6
+```
+
 #### Activating the existing virtual environment
 
 I already created a virtual environment called `.venv` in the project folder.
@@ -135,10 +141,13 @@ Activate the virtual environment:
 source .venv/bin/activate
 ```
 
-Now simply install from the `requirements.txt` file:
+Now install all packages, if not already done:
 
 ```bash
+python3 -m pip install --upgrade pip wheel setuptools
+python3 -m pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
 python3 -m pip install -r requirements.txt
+python3 -m pip install --no-cache-dir --no-build-isolation adam-atan2
 ```
 
 To update the packages using the `requirements.txt` file:
