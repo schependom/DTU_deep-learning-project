@@ -2,7 +2,7 @@
 
 ### General options
 ### -- specify queue --
-#BSUB -q gpuv100
+#BSUB -q gpua100
 ### -- set the job Name --
 #BSUB -J trm_hanoi_train
 ### -- ask for number of cores (default: 1) --
