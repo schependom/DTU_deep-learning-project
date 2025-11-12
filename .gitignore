@@ -16,9 +16,14 @@ src/dataset/data
 
 data/
 
-src/checkpoints/
+/checkpoints/
+/outputs
 src/outputs
 src/wandb
 **/__pycache__/
 
 .venv
+.env
+*.err
+*.out
+wandb/
