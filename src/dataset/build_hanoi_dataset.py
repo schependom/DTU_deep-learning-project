@@ -107,8 +107,28 @@ def convert_dataset(config: DataProcessConfig):
     max_seq_len = config.max_disks_test
 
     # Map puzzle string IDs to integer IDs
+    print("Pre-calculating all puzzle identifiers...")
     identifier_map = {}
     num_identifiers = 1  # 0 is blank
+
+    all_disk_ranges = {
+        "train": range(config.min_disks_train, config.max_disks_train + 1),
+        "test": range(config.min_disks_test, config.max_disks_test + 1),
+    }
+
+    for n_disks in list(all_disk_ranges["train"]) + list(all_disk_ranges["test"]):
+        for s_name, t_name, a_name in peg_permutations:
+            puzzle_id_str = f"hanoi_N{n_disks}_{s_name}_to_{t_name}"
+            if puzzle_id_str not in identifier_map:
+                identifier_map[puzzle_id_str] = num_identifiers
+                num_identifiers += 1
+
+    # This is the total count that must be shared by all metadata files
+    final_num_identifiers = num_identifiers
+    print(f"Total puzzle identifiers found: {final_num_identifiers - 1}")
+
+    # --- Step 2 ---
+    # Now, generate the data for each split
 
     for split_name in ["train", "test"]:
         os.makedirs(os.path.join(config.output_dir, split_name), exist_ok=True)
@@ -127,10 +147,11 @@ def convert_dataset(config: DataProcessConfig):
 
         example_id = 0
         puzzle_id = 0
-
-        # Add the starting indices
         results["puzzle_indices"].append(0)
         results["group_indices"].append(0)
+
+        disk_range = all_disk_ranges[split_name]
+        print(f"Generating {split_name.upper()} split...")
 
         if split_name == "train":
             disk_range = range(config.min_disks_train, config.max_disks_train + 1)
@@ -150,10 +171,14 @@ def convert_dataset(config: DataProcessConfig):
                 peg_permutations, desc=f"N={n_disks} disks"
             ):
                 # Get a unique integer ID for this puzzle configuration
+                # Get the integer ID from the pre-built map
                 puzzle_id_str = f"hanoi_N{n_disks}_{s_name}_to_{t_name}"
+                puzzle_identifier_int = identifier_map[puzzle_id_str]  # Use the map
+
                 if puzzle_id_str not in identifier_map:
                     identifier_map[puzzle_id_str] = num_identifiers
                     num_identifiers += 1
+
                 puzzle_identifier_int = identifier_map[puzzle_id_str]
 
                 s_peg, t_peg, a_peg = peg_map[s_name], peg_map[t_name], peg_map[a_name]
@@ -202,9 +227,10 @@ def convert_dataset(config: DataProcessConfig):
             seq_len=max_seq_len,
             vocab_size=VOCAB_SIZE,
             pad_id=PAD_ID,
-            ignore_label_id=PAD_ID,  # Don't try to predict padding
+            ignore_label_id=PAD_ID,
             blank_identifier_id=0,
-            num_puzzle_identifiers=num_identifiers,
+            # Use the FINAL total count, not the partial one
+            num_puzzle_identifiers=final_num_identifiers,
             total_groups=total_groups,
             mean_puzzle_examples=total_examples / total_puzzles
             if total_puzzles > 0
