@@ -90,7 +90,7 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=4 \
 +run_name=${RUN_NAME} \
-wandb.group=${WANDB_GROUP} \
++wandb.group=${WANDB_GROUP} \
 ema=True
 
 echo ""
@@ -126,7 +126,7 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=4 \
 +run_name=${RUN_NAME} \
-wandb.group=${WANDB_GROUP} \
++wandb.group=${WANDB_GROUP} \
 ema=True
 
 echo ""

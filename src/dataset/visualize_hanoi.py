@@ -13,18 +13,46 @@ ACTION_DISK_OFFSET = 4  # Matches build script
 
 
 def load_metadata(data_dir):
-    path = os.path.join(data_dir, "metadata.json")
+    """Loads dataset.json (new format)"""
+    path = os.path.join(data_dir, "dataset.json")
     if not os.path.exists(path):
+        # Fallback for backward compatibility or error
+        old_path = os.path.join(data_dir, "metadata.json")
+        if os.path.exists(old_path):
+            print(f"⚠️  Warning: Found 'metadata.json' instead of 'dataset.json'. Using legacy format.")
+            with open(old_path, "r") as f:
+                return json.load(f)
         raise FileNotFoundError(f"Metadata not found at {path}")
+    
     with open(path, "r") as f:
         return json.load(f)
 
 
-def get_active_disks_count(state_vec):
-    """Counts disks excluding padding and target token."""
-    # The last token is always target, ignore it for counting
-    # 0 is PAD
-    return np.sum(state_vec[:-1] != PAD_ID)
+def infer_config(meta):
+    """
+    Infers encoding type and max_disks from standard metadata fields 
+    (vocab_size, seq_len) since specific fields are no longer stored.
+    """
+    # If legacy metadata with explicit fields
+    if "encoding_type" in meta:
+        return meta["encoding_type"], meta.get("max_disks", 5)
+
+    vocab_size = meta.get("vocab_size", 0)
+    seq_len = meta.get("seq_len", 0)
+
+    # Heuristic based on build_hanoi_dataset.py logic:
+    # Action encoding: vocab_size = 4 + max_disks
+    # State encoding:  vocab_size = 4
+    
+    if vocab_size > 4:
+        # Must be action encoding
+        max_disks = vocab_size - 4
+        return "action", max_disks
+    else:
+        # State encoding (vocab is just PEG_A..C + PAD)
+        # Seq len = max_disks + 1 (state + target)
+        max_disks = seq_len - 1
+        return "state", max_disks
 
 
 def render_tower_ascii(state_vec, max_disks_global, title="State"):
@@ -32,6 +60,9 @@ def render_tower_ascii(state_vec, max_disks_global, title="State"):
     Generates a visual ASCII representation of the Hanoi Board.
     state_vec: [disk_0_peg, disk_1_peg, ..., target_peg]
     """
+    # Ensure we are working with integers
+    state_vec = state_vec.astype(int)
+    
     target_peg = state_vec[-1]
     disks = state_vec[:-1]
 
@@ -44,14 +75,10 @@ def render_tower_ascii(state_vec, max_disks_global, title="State"):
             towers[peg_id].append(disk_size)
 
     # Sort disks: largest at bottom (index 0)
-    # In Hanoi, larger disks are always below smaller ones,
-    # but we store them so index 0 is the bottom of the visual stack.
     for p in towers:
         towers[p].sort(reverse=True)
 
     # 2. Dimensions
-    # Width: Largest disk (max_disks-1) needs space.
-    # Format: "===(N)==="
     col_width = (max_disks_global * 2) + 6
     height = max_disks_global + 1
 
@@ -73,8 +100,6 @@ def render_tower_ascii(state_vec, max_disks_global, title="State"):
             if h < len(disk_stack):
                 # Draw Disk
                 disk_val = disk_stack[h]
-                # Visual: ==(0)==, ====(1)====
-                # disk_val 0 is smallest.
                 width_val = disk_val + 1
                 bar = "=" * width_val
                 disk_str = f"{bar}({disk_val}){bar}"
@@ -114,19 +139,35 @@ def decode_action(label_vec, target_peg):
 
 def visualize(data_dir, num_samples=3):
     print(f"\n📂 Opening Dataset: {data_dir}")
+    
+    # 1. Load Metadata
     try:
         meta = load_metadata(data_dir)
-        inputs = np.load(os.path.join(data_dir, "inputs.npy"))
-        labels = np.load(os.path.join(data_dir, "labels.npy"))
     except Exception as e:
-        print(f"❌ Error loading data: {e}")
+        print(f"❌ Error loading metadata: {e}")
         return
 
-    encoding = meta.get("encoding_type", "unknown")
-    max_disks = meta.get("max_disks", 5)
+    # 2. Infer Configuration
+    encoding, max_disks = infer_config(meta)
+    print(f"   Inferred Encoding: {encoding.upper()}")
+    print(f"   Inferred Max Disks: {max_disks}")
 
-    print(f"   Encoding: {encoding.upper()}")
-    print(f"   Samples:  {len(inputs)}")
+    # 3. Load Data (Try new name first, then old)
+    inputs_path = os.path.join(data_dir, "all__inputs.npy")
+    labels_path = os.path.join(data_dir, "all__labels.npy")
+    
+    if not os.path.exists(inputs_path):
+        inputs_path = os.path.join(data_dir, "inputs.npy")
+        labels_path = os.path.join(data_dir, "labels.npy")
+
+    try:
+        inputs = np.load(inputs_path)
+        labels = np.load(labels_path)
+    except Exception as e:
+        print(f"❌ Error loading numpy arrays: {e}")
+        return
+
+    print(f"   Samples Found: {len(inputs)}")
     print("-" * 60)
 
     # Pick random samples
@@ -163,7 +204,7 @@ if __name__ == "__main__":
         "--dir",
         type=str,
         required=True,
-        help="Dataset directory containing inputs.npy/labels.npy",
+        help="Dataset directory (e.g. data/hanoi/train) containing dataset.json and npy files",
     )
     parser.add_argument("--n", type=int, default=3, help="Number of samples to show")
     args = parser.parse_args()

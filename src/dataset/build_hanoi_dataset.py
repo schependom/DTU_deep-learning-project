@@ -1,5 +1,6 @@
 """
 Script that can generate both action-based and state-to-state Tower of Hanoi datasets.
+Refactored to match the file structure and metadata format of the Sudoku dataset.
 """
 
 import os
@@ -8,6 +9,9 @@ import numpy as np
 import itertools
 import argparse
 from tqdm import tqdm
+
+# Import metadata schema from common (assumed to be in the same directory)
+from common import PuzzleDatasetMetadata
 
 # --- Constants ---
 PAD_ID = 0
@@ -70,15 +74,6 @@ def solve_hanoi_with_actions(n_disks, source, target, aux):
 def encode_state_and_action(state, action, target_peg, max_disks, seq_len):
     """
     Encode state and next action into input/label format for TRM.
-
-    Format:
-        Input:  [disk_0_peg, disk_1_peg, ..., disk_N_peg, PAD..., target_peg]
-        Label:  [disk_to_move, destination_peg, PAD..., target_peg]
-
-    This way the model learns to:
-    1. Look at current state
-    2. Predict which disk to move and where (the action)
-    3. Use target_peg as goal conditioning
     """
     n_disks = len(state)
 
@@ -102,10 +97,6 @@ def encode_state_and_action(state, action, target_peg, max_disks, seq_len):
 def encode_state_to_state(state_t, state_t1, target_peg, max_disks, seq_len):
     """
     State-to-state encoding: predict next state directly.
-
-    Format:
-        Input:  [disk_0_peg, disk_1_peg, ..., disk_N_peg, PAD..., target_peg]
-        Label:  [next_disk_0_peg, next_disk_1_peg, ..., PAD..., target_peg]
     """
     n_disks = len(state_t)
 
@@ -131,18 +122,7 @@ def generate_dataset(
     test_max=10,
     seed=42,
 ):
-    """
-    Generate Hanoi dataset with configurable encoding for TRM.
-
-    Args:
-        output_dir: Where to save the dataset
-        encoding_type: "action" or "state" encoding
-        train_min, train_max: Training disk range (inclusive)
-        test_min, test_max: Test disk range (inclusive)
-        seed: Random seed
-    """
     np.random.seed(seed)
-
     use_action_encoding = encoding_type == "action"
 
     # --- Configuration ---
@@ -164,20 +144,8 @@ def generate_dataset(
     print(f"{'=' * 60}")
     print(f"Configuration:")
     print(f"  Encoding:    {encoding_type.upper()}")
-    print(f"  Train Disks: {list(train_range)}")
-    print(f"  Test Disks:  {list(test_range)}")
-    print(f"  Seq Len:     {seq_len}")
     print(f"  Vocab Size:  {vocab_size}")
-
-    if use_action_encoding:
-        print(f"\n  Format:")
-        print(f"    Input:  [state, target_peg]")
-        print(f"    Label:  [disk_to_move, dest_peg, target_peg]")
-    else:
-        print(f"\n  Format:")
-        print(f"    Input:  [state_t, target_peg]")
-        print(f"    Label:  [state_t+1, target_peg]")
-    print(f"{'=' * 60}\n")
+    print(f"  Seq Len:     {seq_len}")
 
     peg_ids = [PEG_A, PEG_B, PEG_C]
     peg_perms = list(itertools.permutations(peg_ids, 3))
@@ -185,10 +153,20 @@ def generate_dataset(
     splits = {"train": train_range, "test": test_range}
 
     for split_name, disk_range in splits.items():
-        os.makedirs(os.path.join(output_dir, split_name), exist_ok=True)
+        save_dir = os.path.join(output_dir, split_name)
+        os.makedirs(save_dir, exist_ok=True)
 
+        # Initialize lists for data
         inputs_list = []
         labels_list = []
+        
+        # Initialize lists for indices (matching Sudoku structure)
+        puzzle_indices = [0]
+        group_indices = [0]
+        puzzle_identifiers = []
+
+        global_puzzle_counter = 0 # Counts number of games (source->target)
+        global_example_counter = 0 # Counts total steps/samples
 
         print(f"Generating {split_name.upper()} set...")
 
@@ -196,89 +174,97 @@ def generate_dataset(
             for source, target, aux in tqdm(
                 peg_perms, desc=f"  N={n_disks} disks", leave=False
             ):
-                # Generate optimal trajectory with actions
+                # Generate optimal trajectory for this specific game
                 states, actions = solve_hanoi_with_actions(n_disks, source, target, aux)
 
-                # Create training pairs
+                # Iterate through steps in the trajectory
+                steps_in_puzzle = 0
                 for i in range(len(states) - 1):
                     current_state = states[i]
                     next_state = states[i + 1]
                     action = actions[i]
 
                     if use_action_encoding:
-                        # Learn to predict action
                         input_vec, label_vec = encode_state_and_action(
                             current_state, action, target, max_disks_global, seq_len
                         )
                     else:
-                        # Learn to predict next state
                         input_vec, label_vec = encode_state_to_state(
                             current_state, next_state, target, max_disks_global, seq_len
                         )
 
                     inputs_list.append(input_vec)
                     labels_list.append(label_vec)
+                    
+                    # Identifier: We use 0 to match Sudoku 'blank', 
+                    # or we could use n_disks to distinguish types. 
+                    # Using 0 keeps it simple and consistent with common.py blank_identifier_id
+                    puzzle_identifiers.append(0) 
+                    
+                    global_example_counter += 1
+                    steps_in_puzzle += 1
+                    puzzle_indices.append(global_example_counter)
+
+                # End of one game (puzzle)
+                if steps_in_puzzle > 0:
+                    global_puzzle_counter += 1
+                    group_indices.append(global_puzzle_counter)
 
         # Convert to numpy
-        inputs_np = np.stack(inputs_list)
-        labels_np = np.stack(labels_list)
-
-        print(f"  ✓ Generated {inputs_np.shape[0]:,} samples for {split_name}")
-
-        # Save arrays
-        np.save(os.path.join(output_dir, split_name, "inputs.npy"), inputs_np)
-        np.save(os.path.join(output_dir, split_name, "labels.npy"), labels_np)
-
-        # Save metadata
-        metadata = {
-            "seq_len": int(seq_len),
-            "vocab_size": int(vocab_size),
-            "pad_id": int(PAD_ID),
-            "n_samples": len(inputs_list),
-            "disk_range": list(disk_range),
-            "max_disks": int(max_disks_global),
-            "encoding_type": encoding_type,
-            "description": (
-                "Action-based: Input=[state, target], Label=[disk_to_move, dest_peg, target]"
-                if use_action_encoding
-                else "State-based: Input=[state_t, target], Label=[state_t+1, target]"
-            ),
+        results = {
+            "inputs": np.stack(inputs_list),
+            "labels": np.stack(labels_list),
+            "group_indices": np.array(group_indices, dtype=np.int32),
+            "puzzle_indices": np.array(puzzle_indices, dtype=np.int32),
+            "puzzle_identifiers": np.array(puzzle_identifiers, dtype=np.int32)
         }
 
-        with open(os.path.join(output_dir, split_name, "metadata.json"), "w") as f:
-            json.dump(metadata, f, indent=2)
+        print(f"  ✓ Generated {results['inputs'].shape[0]:,} samples ({global_puzzle_counter} games) for {split_name}")
+
+        # Create Metadata object
+        metadata = PuzzleDatasetMetadata(
+            pad_id=PAD_ID,
+            ignore_label_id=PAD_ID, 
+            blank_identifier_id=0,
+            vocab_size=vocab_size,
+            seq_len=seq_len,
+            num_puzzle_identifiers=1, # Only one type (standard Hanoi)
+            total_groups=global_puzzle_counter,
+            mean_puzzle_examples=float(global_example_counter) / max(1, global_puzzle_counter),
+            total_puzzles=global_puzzle_counter,
+            sets=["all"]
+        )
+
+        # Save Metadata
+        with open(os.path.join(save_dir, "dataset.json"), "w") as f:
+            json.dump(metadata.model_dump(), f, indent=2)
+
+        # Save Arrays with proper naming convention (all__{name}.npy)
+        for k, v in results.items():
+            np.save(os.path.join(save_dir, f"all__{k}.npy"), v)
+
+    # Save global identifiers mapping in root folder (matching Sudoku structure)
+    with open(os.path.join(output_dir, "identifiers.json"), "w") as f:
+        json.dump(["<standard_hanoi>"], f)
 
     print(f"\n{'=' * 60}")
     print(f"Dataset generation complete!")
     print(f"{'=' * 60}")
     print(f"Output directory: {output_dir}/")
-    print(f"\nFiles created:")
-    print(f"  ├── train/")
-    print(f"  │   ├── inputs.npy")
-    print(f"  │   ├── labels.npy")
-    print(f"  │   └── metadata.json")
-    print(f"  └── test/")
-    print(f"      ├── inputs.npy")
-    print(f"      ├── labels.npy")
-    print(f"      └── metadata.json")
+    print(f"\nFiles created (for each split):")
+    print(f"  ├── dataset.json")
+    print(f"  ├── all__inputs.npy")
+    print(f"  ├── all__labels.npy")
+    print(f"  ├── all__group_indices.npy")
+    print(f"  ├── all__puzzle_indices.npy")
+    print(f"  └── all__puzzle_identifiers.npy")
     print(f"\n{'=' * 60}\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate Tower of Hanoi dataset for TRM with configurable encoding",
+        description="Generate Tower of Hanoi dataset aligned with Sudoku file structure",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-        Examples:
-        # Generate action-based dataset (recommended for TRM)
-        python build_hanoi_dataset.py --encoding action --out data/hanoi_action
-        
-        # Generate state-to-state dataset (baseline comparison)
-        python build_hanoi_dataset.py --encoding state --out data/hanoi_state
-        
-        # Custom disk ranges
-        python build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5 --test-min 6 --test-max 8
-        """,
     )
     parser.add_argument(
         "--out",
@@ -291,35 +277,13 @@ if __name__ == "__main__":
         type=str,
         choices=["action", "state"],
         default="action",
-        help="Encoding type: 'action' (predict moves) or 'state' (predict next state) (default: action)",
+        help="Encoding type: 'action' or 'state' (default: action)",
     )
-    parser.add_argument(
-        "--train-min",
-        type=int,
-        default=3,
-        help="Minimum number of disks for training (default: 3)",
-    )
-    parser.add_argument(
-        "--train-max",
-        type=int,
-        default=6,
-        help="Maximum number of disks for training (default: 6)",
-    )
-    parser.add_argument(
-        "--test-min",
-        type=int,
-        default=7,
-        help="Minimum number of disks for testing (default: 7)",
-    )
-    parser.add_argument(
-        "--test-max",
-        type=int,
-        default=10,
-        help="Maximum number of disks for testing (default: 10)",
-    )
-    parser.add_argument(
-        "--seed", type=int, default=42, help="Random seed (default: 42)"
-    )
+    parser.add_argument("--train-min", type=int, default=3)
+    parser.add_argument("--train-max", type=int, default=6)
+    parser.add_argument("--test-min", type=int, default=7)
+    parser.add_argument("--test-max", type=int, default=10)
+    parser.add_argument("--seed", type=int, default=42)
 
     args = parser.parse_args()
 
