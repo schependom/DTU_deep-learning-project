@@ -269,15 +269,15 @@ if __name__ == "__main__":
         description="Generate Tower of Hanoi dataset for TRM with configurable encoding",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Generate action-based dataset (recommended for TRM)
-  python build_hanoi_dataset.py --encoding action --out data/hanoi_action
-  
-  # Generate state-to-state dataset (baseline comparison)
-  python build_hanoi_dataset.py --encoding state --out data/hanoi_state
-  
-  # Custom disk ranges
-  python build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5 --test-min 6 --test-max 8
+        Examples:
+        # Generate action-based dataset (recommended for TRM)
+        python build_hanoi_dataset.py --encoding action --out data/hanoi_action
+        
+        # Generate state-to-state dataset (baseline comparison)
+        python build_hanoi_dataset.py --encoding state --out data/hanoi_state
+        
+        # Custom disk ranges
+        python build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5 --test-min 6 --test-max 8
         """,
     )
     parser.add_argument(

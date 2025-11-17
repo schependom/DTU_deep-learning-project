@@ -251,32 +251,32 @@ bash train-local-sudoku.sh
 
 ### Generate the data
 
+From the `src/` folder, run:
+
 ```bash
-# Generate datasets for both encodings
-./generate_hanoi_datasets.sh
+# Generate and visualise datasets for both encodings
+./build_hanoi.sh
 
 # Or generate individually
 python dataset/build_hanoi_dataset.py --encoding action --out data/hanoi_action
 python dataset/build_hanoi_dataset.py --encoding state --out data/hanoi_state
 
-# Custom ranges
-python dataset/build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5
+# Custom disk ranges
+python build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5 --test-min 6 --test-max 8
 ```
 
-### Training
-
-To train on one GPU, from the `src/` folder, run:
+View the usage information with:
 
 ```bash
-run_name="pretrain_mlp_t_hanoi"
-python pretrain.py \
-arch=trm \
-data_paths="[data/hanoi]" \
-evaluators="[]" \
-epochs=50000 eval_interval=5000 \
-lr=1e-4 puzzle_emb_lr=1e-4 weight_decay=1.0 puzzle_emb_weight_decay=1.0 \
-arch.mlp_t=True arch.pos_encodings=none \
-arch.L_layers=2 \
-arch.H_cycles=3 arch.L_cycles=6 \
-+run_name=${run_name} ema=True
+python dataset/build_hanoi_dataset.py --help
+```
+
+### Visualize the data
+
+The `visualize_hanoi.py` script will _automatically_ detect which encoding was used (action or state) and visualize accordingly.
+Assuming you ran `./build_hanoi` previously, from the `src/` folder, run:
+
+```bash
+python dataset/visualize_hanoi.py --dir data/hanoi_action/train
+python dataset/visualize_hanoi.py --dir data/hanoi_state/train
 ```
