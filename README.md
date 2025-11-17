@@ -252,17 +252,16 @@ bash train-local-sudoku.sh
 ### Generate the data
 
 ```bash
-cd src
-python dataset/build_hanoi_dataset.py <options>
+# Generate datasets for both encodings
+./generate_hanoi_datasets.sh
+
+# Or generate individually
+python dataset/build_hanoi_dataset.py --encoding action --out data/hanoi_action
+python dataset/build_hanoi_dataset.py --encoding state --out data/hanoi_state
+
+# Custom ranges
+python dataset/build_hanoi_dataset.py --encoding action --train-min 2 --train-max 5
 ```
-
-You can view the options by running:
-
-```bash
-python dataset/build_hanoi_dataset.py --help
-```
-
-This will generate the `train/` and `test/` data in the folder `src/data/hanoi/`.
 
 ### Training
 
