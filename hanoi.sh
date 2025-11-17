@@ -87,9 +87,11 @@ torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
 arch=trm \
 data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
-arch.H_cycles=3 \
-arch.L_cycles=4 \
+arch.H_cycles=4 \
+arch.L_cycles=6 \
+evaluators=[] \
 +run_name=${RUN_NAME} \
+++global_batch_size=32 \
 +wandb.group=${WANDB_GROUP} \
 ema=True
 
@@ -123,8 +125,10 @@ torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
 arch=trm \
 data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
-arch.H_cycles=3 \
-arch.L_cycles=4 \
+arch.H_cycles=4 \
+arch.L_cycles=6 \
+evaluators=[] \
+++global_batch_size=32 \
 +run_name=${RUN_NAME} \
 +wandb.group=${WANDB_GROUP} \
 ema=True

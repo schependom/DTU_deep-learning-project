@@ -116,6 +116,12 @@ def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size:
 
 
 def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, rank: int, world_size: int):
+    # --- DEBUG: Print Sequence Length ---
+    if rank == 0:
+        print(f"DEBUG: Model initialized with seq_len={train_metadata.seq_len}")
+        print(f"DEBUG: Model initialized with vocab_size={train_metadata.vocab_size}")
+    # ------------------------------------
+
     model_cfg = dict(
         **config.arch.__pydantic_extra__,  # type: ignore
         batch_size=config.global_batch_size // world_size,
@@ -607,11 +613,11 @@ def launch(hydra_config: DictConfig):
         print("NO EVAL DATA FOUND")
         eval_loader = eval_metadata = None
 
-    try:
-        evaluators = create_evaluators(config, eval_metadata)
-    except:
-        print("No evaluator found")
-        evaluators = []
+    # --- DEBUG: UN-SILENCE EVALUATOR ERROR ---
+    # Was: try/except block swallowing errors
+    evaluators = create_evaluators(config, eval_metadata)
+    print(f"Successfully created {len(evaluators)} evaluators.")
+    # -----------------------------------------
 
     # Train state
     train_state = init_train_state(
@@ -649,6 +655,17 @@ def launch(hydra_config: DictConfig):
                 wandb.log(metrics, step=train_state.step)
                 progress_bar.update(train_state.step -
                                     progress_bar.n)  # type: ignore
+                
+                # --- DEBUG: PRINT LOSS TO CONSOLE ---
+                if train_state.step % 50 == 0:
+                    loss_val = metrics.get('train/loss', 'N/A')
+                    if isinstance(loss_val, float):
+                        loss_str = f"{loss_val:.4f}"
+                    else:
+                        loss_str = str(loss_val)
+                    print(f"Step {train_state.step} | Loss: {loss_str}")
+                # ------------------------------------
+
             if config.ema:
                 ema_helper.update(train_state.model)
 
