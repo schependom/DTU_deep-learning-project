@@ -107,7 +107,6 @@ def convert_subset(
 ):
     use_action_encoding = encoding_type == "action"
     
-    # Initialize data structures for PuzzleDataset
     results = {
         "inputs": [],
         "labels": [],
@@ -128,14 +127,7 @@ def convert_subset(
         for source, target, aux in tqdm(peg_perms, desc=f"  N={n_disks}", leave=False):
             states, actions = solve_hanoi_with_actions(n_disks, source, target, aux)
             
-            # Each full solution path is ONE "puzzle" consisting of multiple examples (steps)
-            # However, Sudoku treats each board as a puzzle. 
-            # For Hanoi, it's better to treat the entire solution path as one "group" 
-            # or just treat every step as a training example. 
-            # Given the logic in puzzle_dataset.py, let's structure it:
-            # One "Group" = One Hanoi Configuration (Source->Target)
-            # This group contains 1 "Puzzle" (which is just the sequence of steps).
-            
+            # Each trajectory is ONE GROUP containing multiple PUZZLES (one per step)
             for i in range(len(states) - 1):
                 current_state = states[i]
                 next_state = states[i + 1]
@@ -150,33 +142,26 @@ def convert_subset(
                         current_state, next_state, target, seq_len
                     )
 
+                # Each step is ONE puzzle with ONE example
                 results["inputs"].append(input_vec)
                 results["labels"].append(label_vec)
                 
                 example_id_counter += 1
+                puzzle_id_counter += 1
+                
+                # Each step is a separate puzzle
+                results["puzzle_indices"].append(example_id_counter)
+                results["puzzle_identifiers"].append(0)
             
-            # End of one specific Hanoi problem instance
-            # In Sudoku, puzzle_indices tracks examples. 
-            # Here, we treat the whole trajectory as one block of examples.
-            # Actually, looking at Sudoku, it seems "puzzle_indices" tracks the cumulative count of examples.
-            # And "group_indices" tracks the cumulative count of puzzles.
-            
-            # We will treat every step as a distinct example, but group them by the problem instance.
-            results["puzzle_indices"].append(example_id_counter)
-            
-            # Identifier ID (just 0 for generic)
-            results["puzzle_identifiers"].append(0)
-            
-            puzzle_id_counter += 1
+            # End of one trajectory = end of one group
             results["group_indices"].append(puzzle_id_counter)
 
     # Convert to Numpy
     inputs_np = np.stack(results["inputs"])
     labels_np = np.stack(results["labels"])
     
-    # Ensure types match Sudoku loader expectations
     final_results = {
-        "inputs": inputs_np.astype(np.int32), # Loader often casts, but let's be safe
+        "inputs": inputs_np.astype(np.int32),
         "labels": labels_np.astype(np.int32),
         "puzzle_indices": np.array(results["puzzle_indices"], dtype=np.int32),
         "group_indices": np.array(results["group_indices"], dtype=np.int32),
@@ -196,19 +181,19 @@ def convert_subset(
         "seq_len": int(seq_len),
         "vocab_size": int(vocab_size),
         "pad_id": int(PAD_ID),
-        "ignore_label_id": int(PAD_ID), # Using PAD as ignore
+        "ignore_label_id": int(PAD_ID),
         "blank_identifier_id": 0,
         "num_puzzle_identifiers": 1,
         "total_groups": len(final_results["group_indices"]) - 1,
-        "mean_puzzle_examples": float(len(final_results["inputs"]) / (len(final_results["group_indices"]) - 1)),
-        "total_puzzles": len(final_results["group_indices"]) - 1,
+        "mean_puzzle_examples": 1.0,  # Each puzzle has exactly 1 example
+        "total_puzzles": len(final_results["puzzle_indices"]) - 1,
         "sets": ["all"]
     }
 
     with open(os.path.join(save_dir, "dataset.json"), "w") as f:
         json.dump(metadata, f, indent=2)
         
-    print(f"  ✓ Saved {len(inputs_np)} examples to {save_dir}")
+    print(f"  ✓ Saved {len(inputs_np)} examples as {puzzle_id_counter} puzzles in {len(results['group_indices'])-1} groups to {save_dir}")
 
 
 def generate_dataset(
