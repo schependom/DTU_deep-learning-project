@@ -116,12 +116,6 @@ def create_dataloader(config: PretrainConfig, split: str, rank: int, world_size:
 
 
 def create_model(config: PretrainConfig, train_metadata: PuzzleDatasetMetadata, rank: int, world_size: int):
-    # --- DEBUG: Print Sequence Length ---
-    if rank == 0:
-        print(f"DEBUG: Model initialized with seq_len={train_metadata.seq_len}")
-        print(f"DEBUG: Model initialized with vocab_size={train_metadata.vocab_size}")
-    # ------------------------------------
-
     model_cfg = dict(
         **config.arch.__pydantic_extra__,  # type: ignore
         batch_size=config.global_batch_size // world_size,
@@ -361,38 +355,13 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
             reduced_metrics = {k: metric_values[i]
                                for i, k in enumerate(metric_keys)}
 
-            # Postprocess - handle both halted and non-halted metrics
-            # Use max(count, 1) to avoid division by zero
-            count = max(reduced_metrics.get("count", 0), 1)
-            
-            processed_metrics = {}
-            for k, v in reduced_metrics.items():
-                if k == "count":
-                    # Don't normalize count itself
-                    processed_metrics[f"train/{k}"] = v
-                elif k.endswith("loss"):
-                    # Losses are already summed per example, divide by batch size
-                    processed_metrics[f"train/{k}"] = v / global_batch_size
-                else:
-                    # Other metrics (accuracy, steps, etc.) - normalize by count
-                    # If count is 0, these will be 0 anyway (since they're conditional sums)
-                    if reduced_metrics.get("count", 0) > 0:
-                        processed_metrics[f"train/{k}"] = v / count
-                    else:
-                        # No halted examples yet - skip non-loss metrics or set to 0
-                        processed_metrics[f"train/{k}"] = 0.0
+            # Postprocess
+            count = max(reduced_metrics["count"], 1)  # Avoid NaNs
+            reduced_metrics = {f"train/{k}": v / (global_batch_size if k.endswith(
+                "loss") else count) for k, v in reduced_metrics.items()}
 
-            processed_metrics["train/lr"] = lr_this_step
-            
-            # --- DEBUG: PRINT ACTUAL LOSS VALUES ---
-            if train_state.step % 50 == 0:
-                loss_str = f"{processed_metrics.get('train/lm_loss', 0.0):.4f}"
-                total_loss_str = f"{(processed_metrics.get('train/lm_loss', 0.0) + processed_metrics.get('train/q_halt_loss', 0.0)):.4f}"
-                count_val = reduced_metrics.get('count', 0)
-                print(f"Step {train_state.step} | LM Loss: {loss_str} | Total Loss: {total_loss_str} | Halted: {count_val}/{global_batch_size}")
-            # ---------------------------------------
-            
-            return processed_metrics
+            reduced_metrics["train/lr"] = lr_this_step
+            return reduced_metrics
 
 
 def evaluate(
@@ -638,11 +607,11 @@ def launch(hydra_config: DictConfig):
         print("NO EVAL DATA FOUND")
         eval_loader = eval_metadata = None
 
-    # --- DEBUG: UN-SILENCE EVALUATOR ERROR ---
-    # Was: try/except block swallowing errors
-    evaluators = create_evaluators(config, eval_metadata)
-    print(f"Successfully created {len(evaluators)} evaluators.")
-    # -----------------------------------------
+    try:
+        evaluators = create_evaluators(config, eval_metadata)
+    except:
+        print("No evaluator found")
+        evaluators = []
 
     # Train state
     train_state = init_train_state(
@@ -680,17 +649,6 @@ def launch(hydra_config: DictConfig):
                 wandb.log(metrics, step=train_state.step)
                 progress_bar.update(train_state.step -
                                     progress_bar.n)  # type: ignore
-                
-                # --- DEBUG: PRINT LOSS TO CONSOLE ---
-                if train_state.step % 50 == 0:
-                    loss_val = metrics.get('train/loss', 'N/A')
-                    if isinstance(loss_val, float):
-                        loss_str = f"{loss_val:.4f}"
-                    else:
-                        loss_str = str(loss_val)
-                    print(f"Step {train_state.step} | Loss: {loss_str}")
-                # ------------------------------------
-
             if config.ema:
                 ema_helper.update(train_state.model)
 
