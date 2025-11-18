@@ -1,6 +1,9 @@
 """
-Script that can generate both action-based and state-to-state Tower of Hanoi datasets.
-Strictly adheres to the file structure required by puzzle_dataset.py (Sudoku style).
+Fixed Tower of Hanoi dataset generation.
+Key fixes:
+1. Correct puzzle_indices structure (each step is a separate puzzle)
+2. Proper sequence length (just enough for one step's I/O)
+3. Match Sudoku's single-example-per-puzzle pattern
 """
 
 import os
@@ -15,21 +18,18 @@ PAD_ID = 0
 PEG_A = 1
 PEG_B = 2
 PEG_C = 3
-# Action tokens: which disk moves (disk 0 = smallest = token 4, disk 1 = token 5, etc.)
 ACTION_DISK_OFFSET = 4
 
 
 def get_vocab_size(max_disks, use_action_encoding):
     if use_action_encoding:
-        return 4 + max_disks
+        return 4 + max_disks  # PAD + 3 pegs + disk actions
     else:
-        return 4
+        return 4  # PAD + 3 pegs
 
 
 def solve_hanoi_with_actions(n_disks, source, target, aux):
-    """
-    Generates optimal sequence of (state, action) pairs for Tower of Hanoi.
-    """
+    """Generates optimal sequence of (state, action) pairs for Tower of Hanoi."""
     current_state = np.full(n_disks, source, dtype=np.uint8)
     states = [current_state.copy()]
     actions = []
@@ -42,11 +42,9 @@ def solve_hanoi_with_actions(n_disks, source, target, aux):
             return
 
         move(disk - 1, from_peg, aux_peg, to_peg)
-
         current_state[disk] = to_peg
         states.append(current_state.copy())
         actions.append((disk, to_peg))
-
         move(disk - 1, aux_peg, to_peg, from_peg)
 
     if n_disks > 0:
@@ -56,9 +54,7 @@ def solve_hanoi_with_actions(n_disks, source, target, aux):
 
 
 def encode_state_and_action(state, action, target_peg, seq_len):
-    """
-    Encode state and next action into input/label format.
-    """
+    """Encode state and next action into input/label format."""
     n_disks = len(state)
 
     # Input: [state..., target, PAD...]
@@ -66,21 +62,20 @@ def encode_state_and_action(state, action, target_peg, seq_len):
     input_vec[:n_disks] = state
     input_vec[n_disks] = target_peg
 
-    # Label: [disk_action, dest_peg, target, PAD...]
+    # Label: [disk_action, dest_peg, PAD..., target]
     label_vec = np.full(seq_len, PAD_ID, dtype=np.uint8)
     if action is not None:
         disk_id, dest_peg = action
         label_vec[0] = ACTION_DISK_OFFSET + disk_id
         label_vec[1] = dest_peg
+    # Put target at same position as input for consistency
     label_vec[n_disks] = target_peg
 
     return input_vec, label_vec
 
 
 def encode_state_to_state(state_t, state_t1, target_peg, seq_len):
-    """
-    State-to-state encoding.
-    """
+    """State-to-state encoding."""
     n_disks = len(state_t)
 
     # Input: [state_t..., target, PAD...]
@@ -107,12 +102,13 @@ def convert_subset(
 ):
     use_action_encoding = encoding_type == "action"
     
+    # Initialize data structures
     results = {
         "inputs": [],
         "labels": [],
         "puzzle_identifiers": [],
-        "puzzle_indices": [0],
-        "group_indices": [0]
+        "puzzle_indices": [0],  # Cumulative count of examples
+        "group_indices": [0]    # Cumulative count of puzzles
     }
 
     puzzle_id_counter = 0
@@ -127,7 +123,8 @@ def convert_subset(
         for source, target, aux in tqdm(peg_perms, desc=f"  N={n_disks}", leave=False):
             states, actions = solve_hanoi_with_actions(n_disks, source, target, aux)
             
-            # Each trajectory is ONE GROUP containing multiple PUZZLES (one per step)
+            # KEY FIX: Each step is a SEPARATE puzzle (like Sudoku)
+            # This matches the Sudoku pattern: one input -> one output per puzzle
             for i in range(len(states) - 1):
                 current_state = states[i]
                 next_state = states[i + 1]
@@ -142,7 +139,6 @@ def convert_subset(
                         current_state, next_state, target, seq_len
                     )
 
-                # Each step is ONE puzzle with ONE example
                 results["inputs"].append(input_vec)
                 results["labels"].append(label_vec)
                 
@@ -153,7 +149,7 @@ def convert_subset(
                 results["puzzle_indices"].append(example_id_counter)
                 results["puzzle_identifiers"].append(0)
             
-            # End of one trajectory = end of one group
+            # Each Hanoi problem instance is a group
             results["group_indices"].append(puzzle_id_counter)
 
     # Convert to Numpy
@@ -172,11 +168,11 @@ def convert_subset(
     save_dir = os.path.join(output_dir, split_name)
     os.makedirs(save_dir, exist_ok=True)
 
-    # Save .npy files with 'all__' prefix
+    # Save .npy files
     for k, v in final_results.items():
         np.save(os.path.join(save_dir, f"all__{k}.npy"), v)
 
-    # Metadata generation
+    # Metadata
     metadata = {
         "seq_len": int(seq_len),
         "vocab_size": int(vocab_size),
@@ -185,15 +181,17 @@ def convert_subset(
         "blank_identifier_id": 0,
         "num_puzzle_identifiers": 1,
         "total_groups": len(final_results["group_indices"]) - 1,
-        "mean_puzzle_examples": 1.0,  # Each puzzle has exactly 1 example
-        "total_puzzles": len(final_results["puzzle_indices"]) - 1,
+        "mean_puzzle_examples": float(len(final_results["inputs"]) / (len(final_results["group_indices"]) - 1)),
+        "total_puzzles": len(final_results["puzzle_indices"]) - 1,  # FIXED: Total individual puzzles
         "sets": ["all"]
     }
 
     with open(os.path.join(save_dir, "dataset.json"), "w") as f:
         json.dump(metadata, f, indent=2)
         
-    print(f"  ✓ Saved {len(inputs_np)} examples as {puzzle_id_counter} puzzles in {len(results['group_indices'])-1} groups to {save_dir}")
+    print(f"  ✓ Saved {len(inputs_np)} examples to {save_dir}")
+    print(f"    Total puzzles: {metadata['total_puzzles']}")
+    print(f"    Total groups: {metadata['total_groups']}")
 
 
 def generate_dataset(
@@ -211,13 +209,18 @@ def generate_dataset(
     max_disks_global = test_max
     vocab_size = get_vocab_size(max_disks_global, use_action_encoding)
 
-    # Sequence Length Calculation
-    max_solution_steps = (2 ** max_disks_global) - 1
-    seq_len = max_solution_steps + 10 # Buffer
+    # FIXED: Sequence length should fit ONE step's I/O
+    # For action encoding: [n_disks state + 1 target] for input
+    #                      [2 action tokens + padding] for output
+    # For state encoding:  [n_disks state + 1 target] for both
+    seq_len = max_disks_global + 16  # Buffer for target and action tokens
     if seq_len % 16 != 0:
         seq_len = ((seq_len // 16) + 1) * 16
 
     print(f"Configuration: Enc={encoding_type}, SeqLen={seq_len}, Vocab={vocab_size}")
+    print(f"  Max disks: {max_disks_global}")
+    print(f"  Train range: {train_min}-{train_max}")
+    print(f"  Test range: {test_min}-{test_max}")
 
     # Generate Train
     convert_subset(
@@ -231,11 +234,11 @@ def generate_dataset(
         encoding_type, max_disks_global, seq_len, vocab_size
     )
     
-    # Save generic identifiers file
+    # Save identifiers
     with open(os.path.join(output_dir, "identifiers.json"), "w") as f:
         json.dump(["<blank>"], f)
         
-    print("\nDataset generation complete.")
+    print("\n✓ Dataset generation complete!")
 
 
 if __name__ == "__main__":

@@ -361,13 +361,38 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
             reduced_metrics = {k: metric_values[i]
                                for i, k in enumerate(metric_keys)}
 
-            # Postprocess
-            count = max(reduced_metrics["count"], 1)  # Avoid NaNs
-            reduced_metrics = {f"train/{k}": v / (global_batch_size if k.endswith(
-                "loss") else count) for k, v in reduced_metrics.items()}
+            # Postprocess - handle both halted and non-halted metrics
+            # Use max(count, 1) to avoid division by zero
+            count = max(reduced_metrics.get("count", 0), 1)
+            
+            processed_metrics = {}
+            for k, v in reduced_metrics.items():
+                if k == "count":
+                    # Don't normalize count itself
+                    processed_metrics[f"train/{k}"] = v
+                elif k.endswith("loss"):
+                    # Losses are already summed per example, divide by batch size
+                    processed_metrics[f"train/{k}"] = v / global_batch_size
+                else:
+                    # Other metrics (accuracy, steps, etc.) - normalize by count
+                    # If count is 0, these will be 0 anyway (since they're conditional sums)
+                    if reduced_metrics.get("count", 0) > 0:
+                        processed_metrics[f"train/{k}"] = v / count
+                    else:
+                        # No halted examples yet - skip non-loss metrics or set to 0
+                        processed_metrics[f"train/{k}"] = 0.0
 
-            reduced_metrics["train/lr"] = lr_this_step
-            return reduced_metrics
+            processed_metrics["train/lr"] = lr_this_step
+            
+            # --- DEBUG: PRINT ACTUAL LOSS VALUES ---
+            if train_state.step % 50 == 0:
+                loss_str = f"{processed_metrics.get('train/lm_loss', 0.0):.4f}"
+                total_loss_str = f"{(processed_metrics.get('train/lm_loss', 0.0) + processed_metrics.get('train/q_halt_loss', 0.0)):.4f}"
+                count_val = reduced_metrics.get('count', 0)
+                print(f"Step {train_state.step} | LM Loss: {loss_str} | Total Loss: {total_loss_str} | Halted: {count_val}/{global_batch_size}")
+            # ---------------------------------------
+            
+            return processed_metrics
 
 
 def evaluate(

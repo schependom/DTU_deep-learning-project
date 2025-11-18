@@ -75,16 +75,6 @@ export DATA_PATH="src/data/hanoi_action"
 echo "Making directory for run: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 
-echo "Training Configuration:"
-echo "  Run Name: ${RUN_NAME}"
-echo "  Data Path: ${DATA_PATH}"
-echo "  W&B Group: ${WANDB_GROUP}"
-echo "  Batch Size: 128"
-echo "  Epochs: 5000 (with eval every 500)"
-echo "  Recursion: H_cycles=3, L_cycles=4"
-echo "  Weight Decay: 0.03"
-echo ""
-
 # Run the training
 torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
 arch=trm \
@@ -92,7 +82,7 @@ data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=4 \
-evaluators=[] \
+evaluators="[{name: hanoi@HanoiEvaluator}]" \
 epochs=5000 \
 eval_interval=500 \
 global_batch_size=128 \
@@ -125,16 +115,6 @@ export DATA_PATH="src/data/hanoi_state"
 echo "Making directory for run: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 
-echo "Training Configuration:"
-echo "  Run Name: ${RUN_NAME}"
-echo "  Data Path: ${DATA_PATH}"
-echo "  W&B Group: ${WANDB_GROUP}"
-echo "  Batch Size: 128"
-echo "  Epochs: 5000 (with eval every 500)"
-echo "  Recursion: H_cycles=3, L_cycles=4"
-echo "  Weight Decay: 0.03"
-echo ""
-
 # Run the training
 torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
 arch=trm \
@@ -142,7 +122,7 @@ data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=4 \
-evaluators=[] \
+evaluators="[{name: hanoi_evaluator@HanoiEvaluator}]" \
 epochs=5000 \
 eval_interval=500 \
 global_batch_size=128 \
