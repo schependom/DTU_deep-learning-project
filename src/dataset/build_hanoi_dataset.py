@@ -173,6 +173,9 @@ def convert_subset(
         np.save(os.path.join(save_dir, f"all__{k}.npy"), v)
 
     # Metadata
+    num_groups = len(final_results["group_indices"]) - 1
+    num_puzzles = len(final_results["puzzle_indices"]) - 1
+    
     metadata = {
         "seq_len": int(seq_len),
         "vocab_size": int(vocab_size),
@@ -180,9 +183,9 @@ def convert_subset(
         "ignore_label_id": int(PAD_ID),
         "blank_identifier_id": 0,
         "num_puzzle_identifiers": 1,
-        "total_groups": len(final_results["group_indices"]) - 1,
-        "mean_puzzle_examples": float(len(final_results["inputs"]) / (len(final_results["group_indices"]) - 1)),
-        "total_puzzles": len(final_results["puzzle_indices"]) - 1,  # FIXED: Total individual puzzles
+        "total_groups": num_groups,
+        "mean_puzzle_examples": 1.0,  # Each puzzle has exactly 1 example (one step)
+        "total_puzzles": num_puzzles,
         "sets": ["all"]
     }
 

@@ -1,6 +1,4 @@
 #!/bin/bash
-# Generate multiple Hanoi datasets for TRM experimentation
-# Updated to support the Sudoku-aligned file structure (all__inputs.npy, dataset.json)
 
 echo "╔════════════════════════════════════════════════════════════╗"
 echo "║        Tower of Hanoi Dataset Generation for TRM           ║"
@@ -14,10 +12,10 @@ echo "         Output: data/hanoi_action/train/dataset.json"
 python dataset/build_hanoi_dataset.py \
     --encoding action \
     --out data/hanoi_action \
-    --train-min 2 \
-    --train-max 3 \
-    --test-min 4 \
-    --test-max 5 \
+    --train-min 3 \
+    --train-max 6 \
+    --test-min 7 \
+    --test-max 9 \
     --seed 42
 
 echo "   ...Visualizing Action Dataset (Train Split)..."
@@ -32,10 +30,10 @@ echo "         Output: data/hanoi_state/train/dataset.json"
 python dataset/build_hanoi_dataset.py \
     --encoding state \
     --out data/hanoi_state \
-    --train-min 2 \
-    --train-max 3 \
-    --test-min 4 \
-    --test-max 5 \
+    --train-min 3 \
+    --train-max 6 \
+    --test-min 7 \
+    --test-max 9 \
     --seed 42
 
 echo "   ...Visualizing State Dataset (Train Split)..."

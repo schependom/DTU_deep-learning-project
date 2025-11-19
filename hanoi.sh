@@ -10,7 +10,7 @@
 ### -- Select the resources: 1 gpu in exclusive process mode --
 #BSUB -gpu "num=1:mode=exclusive_process"
 ### -- set walltime limit: hh:mm --  maximum 24 hours for GPU-queues right now
-#BSUB -W 8:00
+#BSUB -W 6:00
 # request x GB of system-memory
 #BSUB -R "rusage[mem=32GB]"
 ### -- set the email address --
@@ -24,6 +24,9 @@
 #BSUB -o gpu_%J.out
 #BSUB -e gpu_%J.err
 # -- end of LSF options --
+
+echo "Job started at:"
+date
 
 # Load environment variables
 source .env
@@ -75,25 +78,27 @@ export DATA_PATH="src/data/hanoi_action"
 echo "Making directory for run: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 
-# Run the training
-torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
+torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 ${REPO}/src/pretrain.py \
 arch=trm \
 data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
-arch.L_cycles=4 \
+arch.L_cycles=8 \
 evaluators="[{name: hanoi@HanoiEvaluator}]" \
-epochs=5000 \
-eval_interval=500 \
+epochs=30000 \
+eval_interval=3000 \
+min_eval_interval=5000 \
 global_batch_size=128 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
-lr_warmup_steps=500 \
-weight_decay=0.03 \
-puzzle_emb_weight_decay=0.03 \
+lr_warmup_steps=2000 \
+weight_decay=1.5 \
+puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 +wandb.group=${WANDB_GROUP} \
-ema=True
+ema=True \
+arch.mlp_t=False \
+arch.pos_encodings=default
 
 echo ""
 echo "### [1/2] ACTION ENCODING training finished."
@@ -115,25 +120,27 @@ export DATA_PATH="src/data/hanoi_state"
 echo "Making directory for run: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 
-# Run the training
-torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 src/pretrain.py \
+torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 ${REPO}/src/pretrain.py \
 arch=trm \
 data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
-arch.L_cycles=4 \
-evaluators="[{name: hanoi_evaluator@HanoiEvaluator}]" \
-epochs=5000 \
-eval_interval=500 \
+arch.L_cycles=8 \
+evaluators="[{name: hanoi@HanoiEvaluator}]" \
+epochs=30000 \
+eval_interval=3000 \
+min_eval_interval=5000 \
 global_batch_size=128 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
-lr_warmup_steps=500 \
-weight_decay=0.03 \
-puzzle_emb_weight_decay=0.03 \
+lr_warmup_steps=2000 \
+weight_decay=1.5 \
+puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 +wandb.group=${WANDB_GROUP} \
-ema=True
+ema=True \
+arch.mlp_t=False \
+arch.pos_encodings=default
 
 echo ""
 echo "### [2/2] STATE ENCODING training finished."
@@ -144,13 +151,3 @@ echo "Check W&B group: ${WANDB_GROUP}"
 echo ""
 echo "Job finished at:"
 date
-
-# =================================================================
-# ===                  EXPECTED IMPROVEMENTS                    ===
-# =================================================================
-# 1. Smoother loss curves (less noisy)
-# 2. Faster convergence (plateau around 2-3k steps instead of 5k)
-# 3. Better test generalization on 7-10 disk problems
-# 4. More stable exact_accuracy metric
-# 5. Lower final loss values (< 0.3 instead of ~0.5)
-# =================================================================
