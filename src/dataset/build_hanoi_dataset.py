@@ -98,17 +98,17 @@ def convert_subset(
     encoding_type: str,
     max_disks_global: int,
     seq_len: int,
-    vocab_size: int
+    vocab_size: int,
 ):
     use_action_encoding = encoding_type == "action"
-    
+
     # Initialize data structures
     results = {
         "inputs": [],
         "labels": [],
         "puzzle_identifiers": [],
         "puzzle_indices": [0],  # Cumulative count of examples
-        "group_indices": [0]    # Cumulative count of puzzles
+        "group_indices": [0],  # Cumulative count of puzzles
     }
 
     puzzle_id_counter = 0
@@ -122,7 +122,7 @@ def convert_subset(
     for n_disks in disk_range:
         for source, target, aux in tqdm(peg_perms, desc=f"  N={n_disks}", leave=False):
             states, actions = solve_hanoi_with_actions(n_disks, source, target, aux)
-            
+
             # KEY FIX: Each step is a SEPARATE puzzle (like Sudoku)
             # This matches the Sudoku pattern: one input -> one output per puzzle
             for i in range(len(states) - 1):
@@ -141,21 +141,21 @@ def convert_subset(
 
                 results["inputs"].append(input_vec)
                 results["labels"].append(label_vec)
-                
+
                 example_id_counter += 1
                 puzzle_id_counter += 1
-                
+
                 # Each step is a separate puzzle
                 results["puzzle_indices"].append(example_id_counter)
                 results["puzzle_identifiers"].append(0)
-            
-            # Each Hanoi problem instance is a group
-            results["group_indices"].append(puzzle_id_counter)
+
+                # Each step is also a separate group (to match Sudoku structure)
+                results["group_indices"].append(puzzle_id_counter)
 
     # Convert to Numpy
     inputs_np = np.stack(results["inputs"])
     labels_np = np.stack(results["labels"])
-    
+
     final_results = {
         "inputs": inputs_np.astype(np.int32),
         "labels": labels_np.astype(np.int32),
@@ -175,7 +175,7 @@ def convert_subset(
     # Metadata
     num_groups = len(final_results["group_indices"]) - 1
     num_puzzles = len(final_results["puzzle_indices"]) - 1
-    
+
     metadata = {
         "seq_len": int(seq_len),
         "vocab_size": int(vocab_size),
@@ -186,12 +186,12 @@ def convert_subset(
         "total_groups": num_groups,
         "mean_puzzle_examples": 1.0,  # Each puzzle has exactly 1 example (one step)
         "total_puzzles": num_puzzles,
-        "sets": ["all"]
+        "sets": ["all"],
     }
 
     with open(os.path.join(save_dir, "dataset.json"), "w") as f:
         json.dump(metadata, f, indent=2)
-        
+
     print(f"  ✓ Saved {len(inputs_np)} examples to {save_dir}")
     print(f"    Total puzzles: {metadata['total_puzzles']}")
     print(f"    Total groups: {metadata['total_groups']}")
@@ -207,7 +207,7 @@ def generate_dataset(
     seed=42,
 ):
     np.random.seed(seed)
-    
+
     use_action_encoding = encoding_type == "action"
     max_disks_global = test_max
     vocab_size = get_vocab_size(max_disks_global, use_action_encoding)
@@ -227,27 +227,39 @@ def generate_dataset(
 
     # Generate Train
     convert_subset(
-        "train", range(train_min, train_max + 1), output_dir, 
-        encoding_type, max_disks_global, seq_len, vocab_size
+        "train",
+        range(train_min, train_max + 1),
+        output_dir,
+        encoding_type,
+        max_disks_global,
+        seq_len,
+        vocab_size,
     )
 
     # Generate Test
     convert_subset(
-        "test", range(test_min, test_max + 1), output_dir, 
-        encoding_type, max_disks_global, seq_len, vocab_size
+        "test",
+        range(test_min, test_max + 1),
+        output_dir,
+        encoding_type,
+        max_disks_global,
+        seq_len,
+        vocab_size,
     )
-    
+
     # Save identifiers
     with open(os.path.join(output_dir, "identifiers.json"), "w") as f:
         json.dump(["<blank>"], f)
-        
+
     print("\n✓ Dataset generation complete!")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=str, default="data/hanoi")
-    parser.add_argument("--encoding", type=str, choices=["action", "state"], default="action")
+    parser.add_argument(
+        "--encoding", type=str, choices=["action", "state"], default="action"
+    )
     parser.add_argument("--train-min", type=int, default=3)
     parser.add_argument("--train-max", type=int, default=6)
     parser.add_argument("--test-min", type=int, default=7)

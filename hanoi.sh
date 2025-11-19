@@ -85,20 +85,20 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=8 \
 evaluators="[{name: hanoi@HanoiEvaluator}]" \
-epochs=30000 \
-eval_interval=3000 \
-min_eval_interval=5000 \
+epochs=50000 \
+eval_interval=5000 \
+min_eval_interval=0 \
 global_batch_size=128 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
 lr_warmup_steps=2000 \
-weight_decay=1.5 \
+weight_decay=1.0 \
 puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 +wandb.group=${WANDB_GROUP} \
 ema=True \
-arch.mlp_t=False \
-arch.pos_encodings=default
+arch.mlp_t=True \
+arch.pos_encodings=none
 
 echo ""
 echo "### [1/2] ACTION ENCODING training finished."
@@ -127,20 +127,20 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=8 \
 evaluators="[{name: hanoi@HanoiEvaluator}]" \
-epochs=30000 \
-eval_interval=3000 \
-min_eval_interval=5000 \
+epochs=50000 \
+eval_interval=5000 \
+min_eval_interval=0 \
 global_batch_size=128 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
 lr_warmup_steps=2000 \
-weight_decay=1.5 \
+weight_decay=1.0 \
 puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 +wandb.group=${WANDB_GROUP} \
 ema=True \
-arch.mlp_t=False \
-arch.pos_encodings=default
+arch.mlp_t=True \
+arch.pos_encodings=none
 
 echo ""
 echo "### [2/2] STATE ENCODING training finished."
