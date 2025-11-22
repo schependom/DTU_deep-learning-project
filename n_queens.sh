@@ -31,8 +31,8 @@ export DATE_TAG=$(date +%Y%m%d_%H%M)
 # Sudoku is 81. Maze is 900.
 # 144 is small enough for mlp_t (Mixer).
 
-export RUN_NAME="nqueens_12_${DATE_TAG}"
-export DATA_PATH="src/data/n_queens_12"
+export RUN_NAME="nqueens_8_${DATE_TAG}"
+export DATA_PATH="src/data/n_queens_8"
 
 echo "Starting Training: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
@@ -41,6 +41,11 @@ mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 # 1. arch.mlp_t=True : Preferred for fixed-size grid logic (like Sudoku).
 # 2. arch.pos_encodings=none : Because mlp_t implicitly learns positions.
 # 3. Evaluator : n_queens@NQueensEvaluator
+
+# L_layers = z_L and z_H
+# H_cycles = T (T-1 steps without gradient + 1 step with gradient)
+# L_cycles = n = number of updates of z_L per T cycle
+# halt_max_steps = N_sup = deep supervision steps = 16
 
 torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 ${REPO}/src/pretrain.py \
 arch=trm \

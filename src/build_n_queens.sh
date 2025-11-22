@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Parameters
-N_SIZE=12  # N=12 gives 14,200 solutions. N=8 only has 92.
+N_SIZE=8  # N=12 gives 14,200 solutions. N=8 only has 92.
 OUT_DIR="data/n_queens_${N_SIZE}"
 
 echo "----------------------------------------------------------------"
