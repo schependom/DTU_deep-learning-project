@@ -81,31 +81,59 @@ class NQueensEvaluator:
                 self.sample_boards.append((inputs_cpu[i], preds_cpu[i]))
 
     def result(self, save_path: Optional[str] = None, rank: int = 0, world_size: int = 1, group=None) -> Optional[dict]:
-        # Note: Distributed reduction for scalar metrics omitted for brevity, 
-        # but essential for multi-GPU. Assuming single GPU for debug.
-        
-        metrics = {
-            "test/acc": self.correct / self.total,
-            "test/valid_rate": self.valid / self.total,
-            "test/err_row": self.row_errors / self.total,
-            "test/err_col": self.col_errors / self.total,
-            "test/err_diag": self.diag_errors / self.total,
-            "test/err_count": self.count_errors / self.total,
-        }
-        
-        # Log Images to WandB
-        if len(self.sample_boards) > 0 and wandb.run is not None:
-            images = []
-            for inp, pred in self.sample_boards:
-                fig, ax = plt.subplots(1, 2, figsize=(6, 3))
-                ax[0].imshow(inp.view(self.n_size, self.n_size))
-                ax[0].set_title("Input")
-                ax[1].imshow(pred.view(self.n_size, self.n_size))
-                ax[1].set_title("Prediction")
-                images.append(wandb.Image(fig))
-                plt.close(fig)
+        # Create tensors for reduction
+        metrics_tensor = torch.tensor([
+            self.correct,
+            self.valid,
+            self.row_errors,
+            self.col_errors,
+            self.diag_errors,
+            self.count_errors,
+            self.total
+        ], dtype=torch.float64, device="cuda")
+
+        # Distributed reduction
+        if world_size > 1:
+            dist.all_reduce(metrics_tensor, op=dist.ReduceOp.SUM)
+
+        # Only Rank 0 computes and returns the dictionary
+        if rank == 0:
+            total = metrics_tensor[6].item()
+            if total == 0: total = 1 # Avoid div by zero
+
+            metrics = {
+                "test/acc": metrics_tensor[0].item() / total,
+                "test/valid_rate": metrics_tensor[1].item() / total,
+                "test/err_row": metrics_tensor[2].item() / total,
+                "test/err_col": metrics_tensor[3].item() / total,
+                "test/err_diag": metrics_tensor[4].item() / total,
+                "test/err_count": metrics_tensor[5].item() / total,
+            }
             
-            # Log directly (a bit hacky inside evaluator but works)
-            wandb.log({"examples/failures": images}, commit=False)
+            # --- IMAGE LOGGING FIX ---
+            # We log images directly here, separate from the return dict
+            # This bypasses the scalar reduction logic in pretrain.py
+            if len(self.sample_boards) > 0 and wandb.run is not None:
+                images = []
+                for inp, pred in self.sample_boards:
+                    fig, ax = plt.subplots(1, 2, figsize=(6, 3))
+                    
+                    # Input (1=Empty, 2=Queen)
+                    ax[0].imshow(inp.view(self.n_size, self.n_size))
+                    ax[0].set_title("Input Hints")
+                    ax[0].axis('off')
+                    
+                    # Pred
+                    ax[1].imshow(pred.view(self.n_size, self.n_size))
+                    ax[1].set_title("Model Guess")
+                    ax[1].axis('off')
+                    
+                    images.append(wandb.Image(fig))
+                    plt.close(fig)
+                
+                # Use commit=False so it attaches to the current step
+                wandb.log({"examples/failures": images}, commit=False)
+
+            return metrics
             
-        return metrics
+        return None

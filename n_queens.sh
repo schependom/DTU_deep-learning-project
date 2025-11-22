@@ -5,7 +5,7 @@
 #BSUB -J trm_nqueens
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
-#BSUB -W 24:00
+#BSUB -W 5:00
 #BSUB -R "rusage[mem=32GB]"
 #BSUB -u s251739@dtu.dk
 #BSUB -B
@@ -25,7 +25,7 @@ source ${REPO}/.venv/bin/activate
 export MASTER_ADDR=$(hostname)
 export MASTER_PORT=29500 
 export DATE_TAG=$(date +%Y%m%d_%H%M)
-export N_SIZE=10
+export N_SIZE=12
 
 # --- Training Configuration ---
 # N=12 Board is 12x12 = 144 sequence length.
@@ -61,13 +61,13 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=8 \
 evaluators="[{name: n_queens@NQueensEvaluator}]" \
-epochs=500 \
-eval_interval=5000 \
+epochs=10 \
+eval_interval=250 \
 min_eval_interval=0 \
 global_batch_size=128 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
-lr_warmup_steps=2000 \
+lr_warmup_steps=1000 \
 weight_decay=1.0 \
 puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
