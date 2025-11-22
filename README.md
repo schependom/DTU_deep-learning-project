@@ -163,9 +163,19 @@ python3 -m pip install --upgrade -r requirements.txt
 How does the `PuzzleDataset` class work?
 The dataset has a 3-level hierarchy:
 
--   Examples (lowest level): Individual training samples (input-output pairs)
--   Puzzles (middle level): Collections of examples from the same puzzle
--   Groups (highest level): Collections of puzzles that should be sampled together
+-   **Groups**
+    -   Collections of puzzles that are related
+    -   Atomic unit for train/test splitting
+    -   If Group $x$ is in the training set, no puzzles from Group $x$ appear in the test set
+    -   Prevent data leakage
+    -   e.g., augmentations of the same base puzzle
+-   **Puzzles**
+    -   "Variants" of the same problem
+    -   Specific augmentation or transformation of the Group
+    -   Increase dataset size and forces model to learn invariant rules, regardless of representation
+-   **Examples**
+    -   Input-Output pairs
+    -   In sudoku and maze, **1 example per puzzle**
 
 For example:
 
@@ -178,6 +188,18 @@ Group 1:
   ├─ Puzzle 3: [Example 6, Example 7, Example 8, Example 9]
   └─ Puzzle 4: [Example 10]
 ```
+
+In sudoku (one example per puzzle), this looks like:
+
+```
+Group 0:
+  ├─ Puzzle 0:      original board
+  └─ Puzzle 1..N:   digit permutations,
+                    shuffling rows, columns within bands/stacks,
+                    transpositions
+```
+
+In maze, we do dihedral transforms to produce 7 additional puzzles on top of the base `Puzzle 0` within the group.
 
 ### File Structure
 
@@ -196,16 +218,39 @@ data/hanoi/
     └── (same structure)
 ```
 
+-   `dataset.json`:
+    -   Contains the "schema" of the data.
+    -   `vocab_size`: Total number of distinct token IDs (e.g., 11 for Sudoku: 0=pad, 1-9=digits).
+    -   `seq_len`: The fixed length of the input/output vector (e.g., 81 for Sudoku, 900 for Maze).
+-   `all__inputs.npy`:
+    -   Shape `[N_samples, seq_len]`.
+    -   Contains the initial problem state.
+    -   For Sudoku: The board with clues (1-9) and blanks (0).
+    -   For Maze: The walls (#), start (S), and goal (G).
+-   `all__labels.npy`:
+    -   Shape `[N_samples, seq_len]`.
+    -   Contains the target solution state (**final** solution!).
+    -   For Sudoku: The completed board (1-9).
+    -   For Maze: The path from start to goal (., S, G).
+    -   The model does **not** predict one step.
+        -   It takes the `input` (Unsolved),
+        -   processes it internally for K cycles,
+        -   the output head is trained to match `label` (Fully Solved).
+-   `all__puzzle_indices`, `all__group_indices`:
+    -   Used for data augmentation.
+    -   If you generate 8 augmentations (rotations/flips) of one Sudoku board, they share a `group_index`.
+    -   This ensures that when splitting Train/Test, you don't put a rotated version of a training puzzle into the test set (data leakage).
+
 How the indices work:
 
 -   E.g. `puzzle_indices = [0, 3, 5, 6, 10]` means:
-    -   Puzzle 0 has examples from index 0 to 2 (indices 0, 1, 2 -> 3 examples)
-    -   Puzzle 1 has examples from index 3 to 4 (indices 3, 4 -> 2 examples)
-    -   Puzzle 2 has examples from index 5 to 5 (index 5 -> 1 example)
-    -   Puzzle 3 has examples from index 6 to 9 (indices 6, 7, 8, 9 -> 4 examples)
+    -   Puzzle 0 has examples from index 0 to 2
+    -   Puzzle 1 has examples from index 3 to 4
+    -   Puzzle 2 has examples from index 5 to 5
+    -   Puzzle 3 has examples from index 6 to 9
 -   E.g. `group_indices = [0, 3, 6]` means:
-    -   Group 0 has puzzles from index 0 to 2 (3 puzzles: 0, 1, 2)
-    -   Group 1 has puzzles from index 3 to 5 (3 puzzles: 3, 4, 5)
+    -   Group 0 has puzzles from index 0 to 2
+    -   Group 1 has puzzles from index 3 to 5
 
 ### Training
 
@@ -230,22 +275,6 @@ The `_iter_test` function does this:
 3. Distribute across GPUs
 
 This ensures we evaluate on every single example exactly once.
-
-## Small CPU-size datasets
-
-### Small sudoku
-
-To generate a small sudoku dataset for CPU testing, run:
-
-```bash
-python dataset/build_easy_sudoku_dataset.py --output-dir data/sudoku-small --subsample-size 100 --num-aug 1
-```
-
-To train and evaluate on this dataset, run:
-
-```bash
-bash train-local-sudoku.sh
-```
 
 ## Hanoi
 
