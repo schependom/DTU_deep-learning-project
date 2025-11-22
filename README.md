@@ -276,6 +276,80 @@ The `_iter_test` function does this:
 
 This ensures we evaluate on every single example exactly once.
 
+## $N$-Queens
+
+The $N$-Queens problem involves placing N queens on an N×N chessboard such that no two queens threaten each other. The TRM functions as a **pattern completion engine**, not a next move predictor.
+
+### The choice of $N=12$
+
+For $N=12$, there are 14,200 unique valid solutions. This size is computationally manageable while still being complex enough to challenge the model.
+
+### Input
+
+- A 12×12 grid (flattened to length 144).
+- Some cells contain a `Queen` (Value 2).
+- All other cells are marked as `Unknown`/`Empty` (Value 0 or 1).
+- This represents a "partial thought" or a set of constraints: "I know a `Queen` goes here and here, but I don't know the rest."
+
+### Prediction
+
+- The model outputs the entire 12×12 grid simultaneously.
+- Every cell is filled with a definite decision: "`Queen`" or "`Empty`".
+- The goal is for this final grid to satisfy the global N-Queens constraints (no attacks on rows, columns, or diagonals) while respecting the initial "hints" provided in the input.
+
+### Dataset Structure
+
+The dataset uses the standard TRM 3-level hierarchy, but adapted for the N-Queens generation process:
+
+- **The "Hidden" Root (Base Solution):**
+
+    - Before creating groups, we solve the N-Queens problem to find all unique Base Solutions (e.g., for N=12, there are 14,200 unique completed boards).
+
+    - Crucial Step: We split these Base Solutions into train and test lists first. This is the primary mechanism against data leakage.
+
+- **Level 1: Group (A Specific Problem Instance)**
+
+    - A "Group" in this dataset represents a single Masked Problem derived from a Base Solution.
+
+    -   Example: "Solution #42 with 50% of queens hidden."
+
+    -   In the training loop, we generate multiple different mask patterns (different difficulty levels) for the same Base Solution. Each mask pattern becomes its own Group.
+
+- **Level 2: Puzzle (Augmentations)**
+
+    -   Inside each Group, we generate 8 Puzzles.
+
+    -   eThese correspond to the Dihedral Symmetries (Rotations 0/90/180/270 + Flips) of that specific masked problem.
+
+    -   Because the $N$-Queens constraint is symmetric (a rotated solution is still a valid solution), these 8 puzzles are mathematically valid.
+
+- **Level 3: Example**
+
+    -   The actual input/label tensors.
+
+Thus, the overall structure looks like this:
+
+```txt
+[Split: Train Set (Unique Base Solutions A..Y)]
+   |
+   ├── Group 1 (Solution A, Mask Pattern 1)
+   |     ├── Puzzle 1 (0° Rotation)
+   |     ├── Puzzle 2 (90° Rotation)
+   |     └── ... (8 variants)
+   |
+   ├── Group 2 (Solution A, Mask Pattern 2)
+   |     └── ... (8 variants)
+   |
+   └── Group 3 (Solution B, Mask Pattern 1) ...
+
+[Split: Test Set (Unique Base Solution Z)]
+   |
+   └── Group 100 (Solution Z, Mask Pattern 1)
+         └── Puzzle 1 (0° Rotation only)
+```
+
+Note that we limit the test set to the **"canonical" orientation only** (no transformations and a single mask pattern), to reduce evaluation time. Generating 8x augmentations for evaluation is unnecessary. If the model has learned the concept of $N$-Queens from the training set (which included rotations), it should be able to solve the 0-degree test case perfectly.
+
 ## Hanoi
 
 ### Generate the data
