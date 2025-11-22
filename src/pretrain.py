@@ -328,6 +328,15 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
             if param.grad is not None:
                 dist.all_reduce(param.grad)
 
+    # --- DEBUGGING: Log Gradient Norm ---
+    total_norm = 0.0
+    for p in train_state.model.parameters():
+        if p.grad is not None:
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    # ------------------------------------
+
     # Apply optimizer
     lr_this_step = None
     for optim, base_lr in zip(train_state.optimizers, train_state.optimizer_lrs):
@@ -354,6 +363,8 @@ def train_batch(config: PretrainConfig, train_state: TrainState, batch: Any, glo
             metric_values = metric_values.cpu().numpy()
             reduced_metrics = {k: metric_values[i]
                                for i, k in enumerate(metric_keys)}
+
+            reduced_metrics["train/grad_norm"] = total_norm
 
             # Postprocess
             count = max(reduced_metrics["count"], 1)  # Avoid NaNs

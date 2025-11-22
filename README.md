@@ -1,28 +1,34 @@
 # Tiny Recursive Models (TRMs)
 
-## Setup (local, CPU friendly)
+## Terminology
 
-### Python Environment
+- $x$: input problem
+- $z = z_L$: latent space variable
+- $y = z_H$: current solution
+- $f_\theta = f_L = f_H$: TRM function (lower-level and higher-level are the same function with same parameters)
+- $n$: number of $z \gets f_\theta(x + y +z)$ operations per *full recursion step*
+- $T-1$: number of *full recursion steps* WITH gradients
+- $N_\text{sup}$: number of deep supervision steps
 
-Create a new conda environment:
+## Workflow
 
-```bash
-conda create -n trm python=3.10 -y
-```
+- For maximum $N_\text{sup}$ deep supervision steps:
+    - For $T-1$ full recursion steps:
+        - For $n$ times:
+            - Update $z \gets f_\theta(x + y + z)$
+        - Update $y \gets f_\theta(y + z)$
+    - Final full recursion step (no gradients):
+        - For $n$ times:
+            - Update $z \gets f_\theta(x + y + z)$
+        - Update $y \gets f_\theta(y + z)$
+    - If $\hat{q}_\text{halt}$ indicates to halt, break
 
-Activate the environment:
+During training, $\hat{q}_\text{halt}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
+During testing, $\hat{q}_\text{halt}$ is ignored and the model is run for $N_\text{sup}$ steps.
 
-```bash
-conda activate trm
-```
+## Setup on DTU HPC
 
-Install the required packages:
-
-```bash
-pip install --no-cache-dir -r requirements-macos.txt
-```
-
-## Setup (HPC)
+> *NOTE*: DTU uses LSF cluster management software. If you are using a different HPC system, the job submission commands will differ.
 
 ### Setup SSH
 
@@ -52,8 +58,8 @@ Host <host>
   Port <port>
   User <your-username>
   IdentityFile id_ed25519
-  AddKeysToAgent yes
-  UseKeychain yes
+  AddKeysToAgent yes            # macOS
+  UseKeychain yes               # macOS
 ```
 
 ### Connect to HPC
