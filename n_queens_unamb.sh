@@ -2,7 +2,7 @@
 
 ### General options
 #BSUB -q gpua100
-#BSUB -J trm_nqueens
+#BSUB -J trm_nqueens_unamb
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
 #BSUB -W 5:00
@@ -32,8 +32,8 @@ export N_SIZE=12
 # Sudoku is 81. Maze is 900.
 # 144 is small enough for mlp_t (Mixer).
 
-export RUN_NAME="nqueens_${N_SIZE}_${DATE_TAG}"
-export DATA_PATH="src/data/n_queens_${N_SIZE}"
+export RUN_NAME="nqueens_unamb_${N_SIZE}_${DATE_TAG}"
+export DATA_PATH="src/data/n_queens_unamb_${N_SIZE}"
 
 echo "Starting Training: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
@@ -61,8 +61,8 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=8 \
 evaluators="[{name: n_queens@NQueensEvaluator}]" \
-epochs=10 \
-eval_interval=1 \
+epochs=500 \
+eval_interval=5 \
 min_eval_interval=0 \
 global_batch_size=128 \
 lr=1e-4 \
