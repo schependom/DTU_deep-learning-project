@@ -102,7 +102,7 @@ class NQueensSolver:
         return grid
 
 
-def create_unique_masked_problem(solution: np.ndarray, solver: NQueensSolver, min_mask=0.2, max_mask=1.0) -> Tuple[np.ndarray, bool]:
+def create_unique_masked_problem(solution: np.ndarray, solver: NQueensSolver, min_mask=0.3, max_mask=0.7) -> Tuple[np.ndarray, bool]:
     """
     Tries to create a masked problem with a unique solution.
     Returns (problem, success).
@@ -115,7 +115,7 @@ def create_unique_masked_problem(solution: np.ndarray, solver: NQueensSolver, mi
 
     # Try up to 10 times to find a unique mask configuration for this specific board
     for _ in range(10):
-        mask_ratio = np.random.uniform(min_mask, max_mask)
+        mask_ratio = np.random.uniform(0.2, 0.7)
         num_to_keep = max(0, int(num_queens * (1 - mask_ratio)))
         
         indices = np.random.choice(num_queens, num_to_keep, replace=False)
@@ -206,7 +206,7 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
         pad_id=0, ignore_label_id=0, blank_identifier_id=0,
         num_puzzle_identifiers=1, total_groups=len(results["group_indices"]) - 1,
         mean_puzzle_examples=1, total_puzzles=len(results["group_indices"]) - 1,
-        sets=["all"],
+        sets=["train", "test"],
     )
 
     save_path = os.path.join(output_dir, set_name)

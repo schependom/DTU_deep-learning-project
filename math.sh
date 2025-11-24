@@ -25,15 +25,9 @@ source ${REPO}/.venv/bin/activate
 export MASTER_ADDR=$(hostname)
 export MASTER_PORT=29500 
 export DATE_TAG=$(date +%Y%m%d_%H%M)
-export N_SIZE=12
 
-# --- Training Configuration ---
-# N=12 Board is 12x12 = 144 sequence length.
-# Sudoku is 81. Maze is 900.
-# 144 is small enough for mlp_t (Mixer).
-
-export RUN_NAME="nqueens_unamb_${N_SIZE}_${DATE_TAG}"
-export DATA_PATH="src/data/n_queens_unamb_${N_SIZE}"
+export RUN_NAME="math_${DATE_TAG}"
+export DATA_PATH="src/data/math-arithmetic"
 
 echo "Starting Training: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
@@ -41,7 +35,6 @@ mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
 # Note: 
 # 1. arch.mlp_t=True : Preferred for fixed-size grid logic (like Sudoku).
 # 2. arch.pos_encodings=none : Because mlp_t implicitly learns positions.
-# 3. Evaluator : n_queens@NQueensEvaluator
 
 # L_layers = z_L and z_H
 # H_cycles = T (T-1 steps without gradient + 1 step with gradient)
@@ -60,8 +53,8 @@ data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=6 \
-evaluators="[{name: n_queens@NQueensEvaluator}]" \
-epochs=500 \
+evaluators="[]" \
+epochs=100 \
 eval_interval=1 \
 min_eval_interval=0 \
 global_batch_size=512 \
@@ -73,7 +66,7 @@ puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 ema=True \
 arch.mlp_t=False \
-arch.pos_encodings=rotary  # or learned
+arch.pos_encodings=rotary  # Excellent choice for math sequences
 
 echo "Job finished at:"
 date
