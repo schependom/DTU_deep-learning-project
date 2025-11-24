@@ -2,7 +2,7 @@
 
 ### General options
 #BSUB -q gpua100
-#BSUB -J trm_nqueens_unamb
+#BSUB -J trm_math-arithmetic
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
 #BSUB -W 5:00

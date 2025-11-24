@@ -162,6 +162,11 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
     discard_count = 0
     total_attempts = 0
 
+    # --- CHANGE 1: Define explicit tokens ---
+    # Internal Logic: 0=Empty, 1=Queen
+    # We want Input to use a specific "Unknown" value, e.g., 2.
+    # Note: Logic below assumes 'inp' from create_unique_masked_problem has 0s and 1s.
+    
     for sol in tqdm(base_solutions, desc=f"Processing {set_name}"):
         for _ in range(iterations):
             total_attempts += 1
@@ -172,16 +177,30 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
             if not success:
                 discard_count += 1
                 continue 
-
-            # Augmentations
+            
+            # inp is currently 0 (unknown/empty) and 1 (queen)
+            # We want to distinguish "Unknown" from "Empty"
+            # Let's say: 
+            #   Label Tokens: 1 (Empty), 2 (Queen)
+            #   Input Tokens: 3 (Unknown), 2 (Queen)
+            
+            # Create a dedicated input array where 0 becomes 2 (Unknown internal ID)
+            # We will handle the final +1 shift in _seq_to_numpy
+            
             aug_range = 8 if num_aug > 0 else 1
             for aug_idx in range(aug_range):
-                results["inputs"].append(dihedral_transform(inp, aug_idx))
-                results["labels"].append(dihedral_transform(sol, aug_idx))
-                example_id += 1
-                puzzle_id += 1
-                results["puzzle_indices"].append(example_id)
-                results["puzzle_identifiers"].append(0)
+                # Apply transform to raw (0/1) data
+                t_inp = dihedral_transform(inp, aug_idx)
+                t_sol = dihedral_transform(sol, aug_idx)
+                
+                # --- CRITICAL FIX ---
+                # In the input, change 0 (Ambiguous) to 2 (Explicit Unknown)
+                # Keep 1 (Queen) as 1
+                formatted_inp = t_inp.copy()
+                formatted_inp[formatted_inp == 0] = 2 
+                
+                results["inputs"].append(formatted_inp)
+                results["labels"].append(t_sol) # Label stays 0 (Empty) and 1 (Queen)
 
             results["group_indices"].append(puzzle_id)
 
@@ -189,6 +208,11 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
     print(f"Uniqueness Check: Discarded {discard_count} ambiguous puzzles out of {total_attempts} attempts ({discard_count/total_attempts:.1%}).")
 
     def _seq_to_numpy(seq):
+        # We add 1 to everything to reserve 0 for Padding
+        # Input 2 (Unknown) -> Token 3
+        # Input 1 (Queen)   -> Token 2
+        # Label 0 (Empty)   -> Token 1
+        # Label 1 (Queen)   -> Token 2
         return np.array(seq, dtype=np.uint8).reshape(len(seq), -1) + 1
 
     final_results = {
@@ -202,7 +226,7 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
     n_size = base_solutions[0].shape[0]
     metadata = PuzzleDatasetMetadata(
         seq_len=n_size * n_size,
-        vocab_size=3, 
+        vocab_size=4, 
         pad_id=0, ignore_label_id=0, blank_identifier_id=0,
         num_puzzle_identifiers=1, total_groups=len(results["group_indices"]) - 1,
         mean_puzzle_examples=1, total_puzzles=len(results["group_indices"]) - 1,

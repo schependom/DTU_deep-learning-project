@@ -120,24 +120,34 @@ def convert_subset(set_name: str, num_samples: int, config: DataProcessConfig):
     example_id = 0
 
     for _ in tqdm(range(num_samples)):
-        # Generate Math
-        inp_str, lbl_str = generate_sample(config, rng)
+        # Generate Math: "((12+4)*3)=" and val 48
+        expr_part, val = generate_expression(0, config.max_depth, config.max_int, rng)
+        
+        # FULL STRING: "((12+4)*3)=48"
+        full_str = f"{expr_part}={val}"
+        
+        if len(full_str) > config.seq_len:
+            continue
+
+        # INPUT STRING: "((12+4)*3)=__" (Mask the answer)
+        # We keep the "=" sign in the input to prompt the answer
+        input_str = f"{expr_part}=" 
         
         # Tokenize
-        inp_arr = tokenize(inp_str, config.seq_len)
-        lbl_arr = tokenize(lbl_str, config.seq_len)
-
-        # Store
-        results["inputs"].append(inp_arr)
-        results["labels"].append(lbl_arr)
+        # 1. Create the full label first (The "Solution")
+        lbl_arr = tokenize(full_str, config.seq_len)
         
-        example_id += 1
-        puzzle_id += 1
+        # 2. Create the input (The "Problem")
+        # We copy the label...
+        inp_arr = lbl_arr.copy()
+        
+        # ...and mask the answer part with 0 (PAD) or a specific MASK token
+        # Calculate length of the expression + 1 for '='
+        cutoff = len(input_str)
+        inp_arr[cutoff:] = 0  # Mask everything after '='
 
-        # Indexing (1 example per "puzzle" group for math)
-        results["puzzle_indices"].append(example_id)
-        results["puzzle_identifiers"].append(0) # 0 is blank ID
-        results["group_indices"].append(puzzle_id)
+        results["inputs"].append(inp_arr)
+        results["labels"].append(lbl_arr) # Label is the FULL sequence
 
     # Convert to Numpy
     results["inputs"] = np.stack(results["inputs"])
