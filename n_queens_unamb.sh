@@ -33,7 +33,25 @@ export N_SIZE=12
 # 144 is small enough for mlp_t (Mixer).
 
 export RUN_NAME="nqueens_unamb_${N_SIZE}_${DATE_TAG}"
-export DATA_PATH="src/data/n_queens_unamb_${N_SIZE}"
+
+# Check for data in root 'data/' (preferred) or 'src/data/' (legacy)
+if [ -d "data/n_queens_unamb_${N_SIZE}" ]; then
+    export DATA_PATH="data/n_queens_unamb_${N_SIZE}"
+    echo "Found data at ${DATA_PATH}"
+elif [ -d "src/data/n_queens_unamb_${N_SIZE}" ]; then
+    export DATA_PATH="src/data/n_queens_unamb_${N_SIZE}"
+    echo "Found data at ${DATA_PATH}"
+else
+    # Generate in root 'data/' if not found
+    export DATA_PATH="data/n_queens_unamb_${N_SIZE}"
+    echo "Data not found. Generating at ${DATA_PATH}..."
+    python src/dataset/build_n_queens_unamb.py \
+        --out "${DATA_PATH}" \
+        --n "${N_SIZE}" \
+        --aug 1 \
+        --seed 42
+    echo "Data generation complete."
+fi
 
 echo "Starting Training: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
