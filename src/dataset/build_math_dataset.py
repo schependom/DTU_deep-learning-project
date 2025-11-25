@@ -20,15 +20,15 @@ CHAR2ID = {c: i + 1 for i, c in enumerate(CHARSET)}
 ID2CHAR = {i + 1: c for i, c in enumerate(CHARSET)}
 
 class DataProcessConfig(BaseModel):
-    output_dir: str = "data/math-arithmetic-medium"
+    output_dir: str = "data/math-arithmetic" # Updated to match your workflow
     
     # Dataset Size
     train_size: int = 100000
     test_size: int = 10000
     
     # Sequence Parameters
-    seq_len: int = 32        # Fixed length for inputs/outputs
-    max_depth: int = 3       # Depth of the expression tree
+    seq_len: int = 48        # Increased slightly to accommodate deeper expressions
+    max_depth: int = 4       # Increased depth for difficulty
     max_int: int = 20        # Max value for leaf integers
     
     seed: int = 42
@@ -52,7 +52,7 @@ def generate_expression(depth, max_depth, max_int, rng):
     left_str, left_val = generate_expression(depth + 1, max_depth, max_int, rng)
     right_str, right_val = generate_expression(depth + 1, max_depth, max_int, rng)
 
-    # Avoid division by zero or modulo zero scenarios if we were doing div
+    # Avoid division by zero or modulo zero scenarios
     if op == '%' and right_val == 0:
         right_val = 1
         right_str = "1"
@@ -72,25 +72,6 @@ def generate_expression(depth, max_depth, max_int, rng):
 
     return expr_str, val
 
-def generate_sample(config: DataProcessConfig, rng: random.Random):
-    """
-    Generates a single (input, label) pair.
-    Input:  ((12+4)*3)%7=
-    Label:  6
-    """
-    while True:
-        expr_str, val = generate_expression(0, config.max_depth, config.max_int, rng)
-        
-        # Format Input: "Expression="
-        input_str = expr_str + "="
-        
-        # Format Output: "Value"
-        label_str = str(val)
-        
-        # Filter: Ensure it fits in seq_len
-        if len(input_str) <= config.seq_len and len(label_str) <= config.seq_len:
-            return input_str, label_str
-
 # -----------------------------------------------------------------------------
 # Data Conversion
 # -----------------------------------------------------------------------------
@@ -98,6 +79,10 @@ def generate_sample(config: DataProcessConfig, rng: random.Random):
 def tokenize(text: str, length: int) -> np.ndarray:
     """Converts string to padded numpy array of IDs."""
     ids = [CHAR2ID[c] for c in text]
+    # Check if sequence is too long, return None if so
+    if len(ids) > length:
+        return None
+        
     arr = np.zeros(length, dtype=np.uint8) # Pad with 0
     arr[:len(ids)] = ids
     return arr
@@ -119,35 +104,49 @@ def convert_subset(set_name: str, num_samples: int, config: DataProcessConfig):
     puzzle_id = 0
     example_id = 0
 
-    for _ in tqdm(range(num_samples)):
+    pbar = tqdm(total=num_samples)
+    while len(results["inputs"]) < num_samples:
         # Generate Math: "((12+4)*3)=" and val 48
         expr_part, val = generate_expression(0, config.max_depth, config.max_int, rng)
         
         # FULL STRING: "((12+4)*3)=48"
         full_str = f"{expr_part}={val}"
         
-        if len(full_str) > config.seq_len:
-            continue
-
-        # INPUT STRING: "((12+4)*3)=__" (Mask the answer)
-        # We keep the "=" sign in the input to prompt the answer
+        # INPUT STRING: "((12+4)*3)="
         input_str = f"{expr_part}=" 
         
-        # Tokenize
-        # 1. Create the full label first (The "Solution")
-        lbl_arr = tokenize(full_str, config.seq_len)
+        # Tokenize Full String first (Label candidate)
+        full_arr = tokenize(full_str, config.seq_len)
         
-        # 2. Create the input (The "Problem")
-        # We copy the label...
-        inp_arr = lbl_arr.copy()
-        
-        # ...and mask the answer part with 0 (PAD) or a specific MASK token
-        # Calculate length of the expression + 1 for '='
+        # Skip if too long
+        if full_arr is None:
+            continue
+
+        # 1. Create Input: Mask everything AFTER the "=" (The Answer)
+        inp_arr = full_arr.copy()
         cutoff = len(input_str)
-        inp_arr[cutoff:] = 0  # Mask everything after '='
+        inp_arr[cutoff:] = 0 
+        
+        # 2. Create Label: Mask everything BEFORE the Answer (The Question)
+        # This fixes the gradient issues. We only calculate loss on the answer digits.
+        lbl_arr = full_arr.copy()
+        lbl_arr[:cutoff] = 0 
 
         results["inputs"].append(inp_arr)
-        results["labels"].append(lbl_arr) # Label is the FULL sequence
+        results["labels"].append(lbl_arr) 
+        
+        # --- INDEXING FIX START (Matched to build_maze_dataset.py) ---
+        example_id += 1
+        puzzle_id += 1
+        
+        results["puzzle_indices"].append(example_id)
+        results["puzzle_identifiers"].append(0)
+        results["group_indices"].append(puzzle_id)
+        # --- INDEXING FIX END ---
+        
+        pbar.update(1)
+    
+    pbar.close()
 
     # Convert to Numpy
     results["inputs"] = np.stack(results["inputs"])
@@ -161,7 +160,7 @@ def convert_subset(set_name: str, num_samples: int, config: DataProcessConfig):
         seq_len=config.seq_len,
         vocab_size=len(CHARSET) + 1, # +1 for PAD
         pad_id=0,
-        ignore_label_id=0,
+        ignore_label_id=0, # Matches the 0s we put in the label array
         blank_identifier_id=0,
         num_puzzle_identifiers=1,
         total_groups=len(results["group_indices"]) - 1,

@@ -52,7 +52,7 @@ arch=trm \
 data_paths="[${DATA_PATH}]" \
 arch.L_layers=2 \
 arch.H_cycles=3 \
-arch.L_cycles=6 \
+arch.L_cycles=8 \
 evaluators="[]" \
 epochs=100 \
 eval_interval=1 \
@@ -60,13 +60,13 @@ min_eval_interval=0 \
 global_batch_size=512 \
 lr=1e-4 \
 puzzle_emb_lr=1e-4 \
-lr_warmup_steps=1000 \
-weight_decay=1.0 \
-puzzle_emb_weight_decay=1.0 \
+lr_warmup_steps=100 \
+weight_decay=0.1 \
+puzzle_emb_weight_decay=0.1 \
 +run_name=${RUN_NAME} \
 ema=True \
-arch.mlp_t=False \
-arch.pos_encodings=rotary  # Excellent choice for math sequences
+arch.mlp_t=True \
+arch.pos_encodings=none
 
 echo "Job finished at:"
 date

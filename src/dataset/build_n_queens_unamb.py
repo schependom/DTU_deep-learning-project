@@ -29,18 +29,14 @@ class NQueensSolver:
         """
         Returns True if the partial_grid has exactly one solution.
         """
-        # Convert grid back to internal board representation if possible
-        # Note: The general solver below handles the fixed constraints from partial_grid
         self.solution_count = 0
         
         # Lock fixed positions from the partial grid
-        # fixed_queens[row] = col (or -1 if empty)
         fixed_queens = [-1] * self.n
         rows, cols = np.where(partial_grid == QUEEN)
         for r, c in zip(rows, cols):
             fixed_queens[r] = c
             
-        # Start backtracking with fixed constraints
         board = [-1] * self.n
         self._place_queen_constrained(board, 0, fixed_queens)
         
@@ -61,10 +57,6 @@ class NQueensSolver:
                 board[row] = -1
 
     def _place_queen_constrained(self, board, row, fixed_queens):
-        """
-        Backtracking solver that respects fixed_queens.
-        Stops early if more than 1 solution is found.
-        """
         if self.solution_count > 1:
             return
 
@@ -72,7 +64,6 @@ class NQueensSolver:
             self.solution_count += 1
             return
 
-        # If this row is fixed by the hint, we MUST place it there
         if fixed_queens[row] != -1:
             col = fixed_queens[row]
             if self._is_safe(board, row, col):
@@ -80,7 +71,6 @@ class NQueensSolver:
                 self._place_queen_constrained(board, row + 1, fixed_queens)
                 board[row] = -1
         else:
-            # Standard recursive search for this row
             for col in range(self.n):
                 if self._is_safe(board, row, col):
                     board[row] = col
@@ -90,7 +80,6 @@ class NQueensSolver:
     def _is_safe(self, board, row, col):
         for r in range(row):
             c = board[r]
-            # Check column and diagonals
             if c == col or abs(c - col) == abs(r - row):
                 return False
         return True
@@ -103,30 +92,24 @@ class NQueensSolver:
 
 
 def create_unique_masked_problem(solution: np.ndarray, solver: NQueensSolver, min_mask=0.3, max_mask=0.7) -> Tuple[np.ndarray, bool]:
-    """
-    Tries to create a masked problem with a unique solution.
-    Returns (problem, success).
-    """
     n = solution.shape[0]
     problem = np.zeros_like(solution)
     rows, cols = np.where(solution == QUEEN)
     queen_coords = list(zip(rows, cols))
     num_queens = len(queen_coords)
 
-    # Try up to 10 times to find a unique mask configuration for this specific board
+    # Try up to 10 times to find a unique mask configuration
     for _ in range(10):
         mask_ratio = np.random.uniform(0.2, 0.7)
         num_to_keep = max(0, int(num_queens * (1 - mask_ratio)))
         
         indices = np.random.choice(num_queens, num_to_keep, replace=False)
         
-        # Reset problem
         problem.fill(0)
         for idx in indices:
             r, c = queen_coords[idx]
             problem[r, c] = QUEEN
             
-        # Check uniqueness
         if solver.check_uniqueness(problem):
             return problem, True
 
@@ -158,61 +141,43 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
     results["puzzle_indices"].append(0)
     results["group_indices"].append(0)
     
-    iterations = 1 if num_aug == 0 else 3 # Fewer iterations per board to save time
+    iterations = 1 if num_aug == 0 else 3 
     discard_count = 0
     total_attempts = 0
 
-    # --- CHANGE 1: Define explicit tokens ---
-    # Internal Logic: 0=Empty, 1=Queen
-    # We want Input to use a specific "Unknown" value, e.g., 2.
-    # Note: Logic below assumes 'inp' from create_unique_masked_problem has 0s and 1s.
-    
     for sol in tqdm(base_solutions, desc=f"Processing {set_name}"):
         for _ in range(iterations):
             total_attempts += 1
             
-            # Attempt to generate unique mask
             inp, success = create_unique_masked_problem(sol, solver)
             
             if not success:
                 discard_count += 1
                 continue 
             
-            # inp is currently 0 (unknown/empty) and 1 (queen)
-            # We want to distinguish "Unknown" from "Empty"
-            # Let's say: 
-            #   Label Tokens: 1 (Empty), 2 (Queen)
-            #   Input Tokens: 3 (Unknown), 2 (Queen)
-            
-            # Create a dedicated input array where 0 becomes 2 (Unknown internal ID)
-            # We will handle the final +1 shift in _seq_to_numpy
-            
             aug_range = 8 if num_aug > 0 else 1
             for aug_idx in range(aug_range):
-                # Apply transform to raw (0/1) data
                 t_inp = dihedral_transform(inp, aug_idx)
                 t_sol = dihedral_transform(sol, aug_idx)
                 
-                # --- CRITICAL FIX ---
-                # In the input, change 0 (Ambiguous) to 2 (Explicit Unknown)
-                # Keep 1 (Queen) as 1
                 formatted_inp = t_inp.copy()
                 formatted_inp[formatted_inp == 0] = 2 
                 
                 results["inputs"].append(formatted_inp)
-                results["labels"].append(t_sol) # Label stays 0 (Empty) and 1 (Queen)
+                results["labels"].append(t_sol)
 
+            # --- BUG FIX: Increment puzzle_id here ---
+            puzzle_id += 1
             results["group_indices"].append(puzzle_id)
 
     print(f"Dataset {set_name}: Generated {len(results['inputs'])} examples.")
     print(f"Uniqueness Check: Discarded {discard_count} ambiguous puzzles out of {total_attempts} attempts ({discard_count/total_attempts:.1%}).")
 
     def _seq_to_numpy(seq):
-        # We add 1 to everything to reserve 0 for Padding
-        # Input 2 (Unknown) -> Token 3
-        # Input 1 (Queen)   -> Token 2
-        # Label 0 (Empty)   -> Token 1
-        # Label 1 (Queen)   -> Token 2
+        # Input 2 -> Token 3 (Unknown)
+        # Input 1 -> Token 2 (Queen)
+        # Label 0 -> Token 1 (Empty)
+        # Label 1 -> Token 2 (Queen)
         return np.array(seq, dtype=np.uint8).reshape(len(seq), -1) + 1
 
     final_results = {
