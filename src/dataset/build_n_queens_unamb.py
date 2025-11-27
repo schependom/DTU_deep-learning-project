@@ -166,8 +166,13 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
                 results["inputs"].append(formatted_inp)
                 results["labels"].append(t_sol)
 
-            # --- BUG FIX: Increment puzzle_id here ---
-            puzzle_id += 1
+                example_id += 1
+                puzzle_id += 1
+                
+                results["puzzle_indices"].append(example_id)
+                results["puzzle_identifiers"].append(0)
+
+        if puzzle_id > results["group_indices"][-1]:
             results["group_indices"].append(puzzle_id)
 
     print(f"Dataset {set_name}: Generated {len(results['inputs'])} examples.")
