@@ -195,7 +195,7 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
         pad_id=0, ignore_label_id=0, blank_identifier_id=0,
         num_puzzle_identifiers=1, total_groups=len(results["group_indices"]) - 1,
         mean_puzzle_examples=1, total_puzzles=len(results["group_indices"]) - 1,
-        sets=["train", "test"],
+        sets=["all"],
     )
 
     save_path = os.path.join(output_dir, set_name)
