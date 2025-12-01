@@ -1,0 +1,72 @@
+#!/bin/sh 
+
+### General options
+#BSUB -q gpua100
+#BSUB -J trm_math-arithmetic
+#BSUB -n 4
+#BSUB -gpu "num=1:mode=exclusive_process"
+#BSUB -W 5:00
+#BSUB -R "rusage[mem=32GB]"
+#BSUB -u s251739@dtu.dk
+#BSUB -B
+#BSUB -N
+#BSUB -o gpu_%J.out
+#BSUB -e gpu_%J.err
+
+echo "Job started at:"
+date
+
+# Load environment
+source .env
+module load python3/3.10.12
+module load cuda/12.6
+source ${REPO}/.venv/bin/activate
+
+export MASTER_ADDR=$(hostname)
+export MASTER_PORT=29500 
+export DATE_TAG=$(date +%Y%m%d_%H%M)
+
+export RUN_NAME="math_${DATE_TAG}"
+export DATA_PATH="src/data/math-arithmetic"
+
+echo "Starting Training: ${RUN_NAME}"
+mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
+
+# Note: 
+# 1. arch.mlp_t=True : Preferred for fixed-size grid logic (like Sudoku).
+# 2. arch.pos_encodings=none : Because mlp_t implicitly learns positions.
+
+# L_layers = z_L and z_H
+# H_cycles = T (T-1 steps without gradient + 1 step with gradient)
+# L_cycles = n = number of updates of z_L per T cycle
+# halt_max_steps = N_sup = deep supervision steps = 16
+
+# epoch = amount of times each example is seen during training
+# nb of required steps = N * N * #masks * epochs
+
+# eval interval is in steps, not epochs
+
+
+torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 ${REPO}/src/pretrain.py \
+arch=trm \
+data_paths="[${DATA_PATH}]" \
+arch.L_layers=2 \
+arch.H_cycles=3 \
+arch.L_cycles=8 \
+evaluators="[]" \
+epochs=100 \
+eval_interval=1 \
+min_eval_interval=0 \
+global_batch_size=512 \
+lr=1e-4 \
+puzzle_emb_lr=1e-4 \
+lr_warmup_steps=100 \
+weight_decay=0.1 \
+puzzle_emb_weight_decay=0.1 \
++run_name=${RUN_NAME} \
+ema=True \
+arch.mlp_t=True \
+arch.pos_encodings=none
+
+echo "Job finished at:"
+date

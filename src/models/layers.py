@@ -155,8 +155,8 @@ class Attention(nn.Module):
         attn_output = scaled_dot_product_attention(
             query=query, key=key, value=value, is_causal=self.causal)
         attn_output = einops.rearrange(attn_output, 'B H S D -> B S H D')
-        attn_output = attn_output.view(
-            batch_size, seq_len, self.output_size)  # type: ignore
+        attn_output = attn_output.contiguous().view(
+            batch_size, seq_len, self.output_size)
         return self.o_proj(attn_output)
 
 

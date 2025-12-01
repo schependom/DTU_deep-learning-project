@@ -16,6 +16,8 @@ cli = ArgParser()
 
 
 class DataProcessConfig(BaseModel):
+
+    # https://huggingface.co/datasets/sapientinc/sudoku-extreme
     source_repo: str = "sapientinc/sudoku-extreme"
     output_dir: str = "data/sudoku-extreme-full"
 
@@ -27,23 +29,26 @@ class DataProcessConfig(BaseModel):
 def shuffle_sudoku(board: np.ndarray, solution: np.ndarray):
     # Create a random digit mapping: a permutation of 1..9, with zero (blank) unchanged
     digit_map = np.pad(np.random.permutation(np.arange(1, 10)), (1, 0))
-    
+
     # Randomly decide whether to transpose.
     transpose_flag = np.random.rand() < 0.5
 
     # Generate a valid row permutation:
     # - Shuffle the 3 bands (each band = 3 rows) and for each band, shuffle its 3 rows.
     bands = np.random.permutation(3)
-    row_perm = np.concatenate([b * 3 + np.random.permutation(3) for b in bands])
+    row_perm = np.concatenate(
+        [b * 3 + np.random.permutation(3) for b in bands])
 
     # Similarly for columns (stacks).
     stacks = np.random.permutation(3)
-    col_perm = np.concatenate([s * 3 + np.random.permutation(3) for s in stacks])
+    col_perm = np.concatenate(
+        [s * 3 + np.random.permutation(3) for s in stacks])
 
     # Build an 81->81 mapping. For each new cell at (i, j)
     # (row index = i // 9, col index = i % 9),
     # its value comes from old row = row_perm[i//9] and old col = col_perm[i%9].
-    mapping = np.array([row_perm[i // 9] * 9 + col_perm[i % 9] for i in range(81)])
+    mapping = np.array([row_perm[i // 9] * 9 + col_perm[i % 9]
+                       for i in range(81)])
 
     def apply_transformation(x: np.ndarray) -> np.ndarray:
         # Apply transpose flag
@@ -61,36 +66,40 @@ def convert_subset(set_name: str, config: DataProcessConfig):
     # Read CSV
     inputs = []
     labels = []
-    
+
     with open(hf_hub_download(config.source_repo, f"{set_name}.csv", repo_type="dataset"), newline="") as csvfile:
         reader = csv.reader(csvfile)
         next(reader)  # Skip header
         for source, q, a, rating in reader:
             if (config.min_difficulty is None) or (int(rating) >= config.min_difficulty):
                 assert len(q) == 81 and len(a) == 81
-                
-                inputs.append(np.frombuffer(q.replace('.', '0').encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
-                labels.append(np.frombuffer(a.encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
+
+                inputs.append(np.frombuffer(
+                    q.replace('.', '0').encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
+                labels.append(np.frombuffer(
+                    a.encode(), dtype=np.uint8).reshape(9, 9) - ord('0'))
 
     # If subsample_size is specified for the training set,
     # randomly sample the desired number of examples.
     if set_name == "train" and config.subsample_size is not None:
         total_samples = len(inputs)
         if config.subsample_size < total_samples:
-            indices = np.random.choice(total_samples, size=config.subsample_size, replace=False)
+            indices = np.random.choice(
+                total_samples, size=config.subsample_size, replace=False)
             inputs = [inputs[i] for i in indices]
             labels = [labels[i] for i in indices]
 
     # Generate dataset
     num_augments = config.num_aug if set_name == "train" else 0
 
-    results = {k: [] for k in ["inputs", "labels", "puzzle_identifiers", "puzzle_indices", "group_indices"]}
+    results = {k: [] for k in ["inputs", "labels",
+                               "puzzle_identifiers", "puzzle_indices", "group_indices"]}
     puzzle_id = 0
     example_id = 0
-    
+
     results["puzzle_indices"].append(0)
     results["group_indices"].append(0)
-    
+
     for orig_inp, orig_out in zip(tqdm(inputs), labels):
         for aug_idx in range(1 + num_augments):
             # First index is not augmented
@@ -104,24 +113,24 @@ def convert_subset(set_name: str, config: DataProcessConfig):
             results["labels"].append(out)
             example_id += 1
             puzzle_id += 1
-            
+
             results["puzzle_indices"].append(example_id)
             results["puzzle_identifiers"].append(0)
-            
+
         # Push group
         results["group_indices"].append(puzzle_id)
-        
+
     # To Numpy
     def _seq_to_numpy(seq):
         arr = np.concatenate(seq).reshape(len(seq), -1)
-        
+
         assert np.all((arr >= 0) & (arr <= 9))
         return arr + 1
-    
+
     results = {
         "inputs": _seq_to_numpy(results["inputs"]),
         "labels": _seq_to_numpy(results["labels"]),
-        
+
         "group_indices": np.array(results["group_indices"], dtype=np.int32),
         "puzzle_indices": np.array(results["puzzle_indices"], dtype=np.int32),
         "puzzle_identifiers": np.array(results["puzzle_identifiers"], dtype=np.int32),
@@ -144,14 +153,14 @@ def convert_subset(set_name: str, config: DataProcessConfig):
     # Save metadata as JSON.
     save_dir = os.path.join(config.output_dir, set_name)
     os.makedirs(save_dir, exist_ok=True)
-    
+
     with open(os.path.join(save_dir, "dataset.json"), "w") as f:
         json.dump(metadata.model_dump(), f)
-        
+
     # Save data
     for k, v in results.items():
         np.save(os.path.join(save_dir, f"all__{k}.npy"), v)
-        
+
     # Save IDs mapping (for visualization only)
     with open(os.path.join(config.output_dir, "identifiers.json"), "w") as f:
         json.dump(["<blank>"], f)
