@@ -90,7 +90,7 @@ torchrun --nproc-per-node 1 --rdzv_backend=c10d --nnodes=1 ${REPO}/src/pretrain.
     arch.L_layers=2 \
     arch.H_cycles=3 \
     arch.L_cycles=6 \
-    evaluators="[{name: none}]" \
+    evaluators="[{name: chess@ChessEvaluator}]" \
     epochs=500 \
     eval_interval=1 \
     min_eval_interval=0 \
