@@ -17,10 +17,10 @@ python dataset/build_chess_dataset.py \
     --out "${OUT_DIR}" \
     --seed "${SEED}"
 
-echo ""
-echo "----------------------------------------------------------------"
-echo "Visualizing Train Data Samples (first 3)"
-echo "----------------------------------------------------------------"
+# echo ""
+# echo "----------------------------------------------------------------"
+# echo "Visualizing Train Data Samples (first 3)"
+# echo "----------------------------------------------------------------"
 
 # OPTIONAL: if you want, I can write a visualization script similar to visualize_n_queens.py
 # For now, this just prints sample entries
