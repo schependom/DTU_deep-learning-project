@@ -23,8 +23,8 @@
         - Update $y \gets f_\theta(y + z)$
     - If $\hat{q}_\text{halt}$ indicates to halt, break
 
-During training, $\hat{q}_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
-During testing, $\hat{q}_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
+During training, $\hat{q}\_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
+During testing, $\hat{q}\_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
 
 ## Setup on DTU HPC
 
