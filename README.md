@@ -23,8 +23,8 @@
         - Update $y \gets f_\theta(y + z)$
     - If $\hat{q}_\text{halt}$ indicates to halt, break
 
-During training, $\hat{q}_\text{halt}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
-During testing, $\hat{q}_\text{halt}$ is ignored and the model is run for $N_\text{sup}$ steps.
+During training, $\hat{q}_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
+During testing, $\hat{q}_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
 
 ## Setup on DTU HPC
 
@@ -153,7 +153,7 @@ Now install all packages, if not already done:
 python3 -m pip install --upgrade pip wheel setuptools
 python3 -m pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
 python3 -m pip install -r requirements.txt
-python3 -m pip install --no-cache-dir --no-build-isolation adam-atan2
+pip install --no-cache-dir --no-build-isolation adam-atan2
 ```
 
 To update the packages using the `requirements.txt` file:
