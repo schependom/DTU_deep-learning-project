@@ -336,7 +336,7 @@ The dataset uses the standard TRM 3-level hierarchy, but adapted for the N-Queen
 Thus, the overall structure looks like this:
 
 ```txt
-[Split: Train Set (Unique Base Solutions A..Y)]
+Split: Train Set (Unique Base Solutions A..Y)
    |
    ├── Group 1 (Solution A, Mask Pattern 1)
    |     ├── Puzzle 1 (0° Rotation)
@@ -348,7 +348,7 @@ Thus, the overall structure looks like this:
    |
    └── Group 3 (Solution B, Mask Pattern 1) ...
 
-[Split: Test Set (Unique Base Solution Z)]
+Split: Test Set (Unique Base Solution Z)
    |
    └── Group 100 (Solution Z, Mask Pattern 1)
          └── Puzzle 1 (0° Rotation only)

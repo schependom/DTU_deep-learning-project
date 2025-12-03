@@ -1,0 +1,288 @@
+% Based on template for ICASSP-2010 paper; to be used with:
+%          02456.sty  - 02456 LaTeX style file adapted from ICASSP
+\documentclass{article}
+\usepackage{amsmath,graphicx,02456}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{bm}
+\usepackage{siunitx}
+\usepackage{hyperref}
+
+\toappear{02456 Deep Learning, DTU Compute, Fall 2025}
+
+% Title.
+% ------
+\title{Recursive Reasoning with Tiny Networks}
+
+% Author names and student numbers
+% --------------------------------
+\name{%
+  \begin{tabular}{c}
+    Vincent Van Schependom (s251739),
+Malthe Bresler (s214631) \\ 
+Jacob Corkill Nielsen (s204093),
+Sara Maria Bjørn Andersen (s202186)
+  \end{tabular}
+}
+\address{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large Language Models (LLMs) often struggle with complex reasoning tasks due to their autoregressive nature. The Tiny Recursive Model (TRM) proposes another approach for these tasks, by using a small, static neural network that iteratively refines a solution in latent space. This project reproduces the results on the author's Sudoku dataset. We also apply the TRM to a new CSP puzzle, namely $N$-queens. Lastly, we attempt to test the architectures limits by applying it to a sequential planning task (Towers of Hanoi), as well as math arithmetic and chess move prediction. We successfully validate the authors' findings on Sudoku, and find that the TRM works well as a static solver (straight from input to solution), leading to impressive results on unambiguous $N$-queens puzzles (98\% accuracy), but failure when predicting policies (as in Hanoi). TODO: chess move prediction and math.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+In recent years the evolution of transformers in Natural Language Processing has involved larger and larger models, with exponential growth in parameters and required computation. Even then, these Large Language Models (LLMs) struggle with complicated tasks requiring thorough reasoning. As reasoning is handled in test-time computing, their auto-regressive token-based nature, as well as context length- and self-attention limitations, makes reasoning fall apart as complexity is introduced. Errors are compounded and eventually turn into nonsense or false answers, further degrading performance. In other words, the jack-of-all-trades nature of LLMs severely hinders its potential for growth.
+
+This project considers a method proposed by Joliceur-Martineau called the Tiny Recursive Model (TRM) \cite{Jolicoeur-Martineau2025LessNetworks}. We will initially explain how this model works, contrasting its ``static mapping'' approach with standard autoregression. Then we will reproduce their initial results on the benchmarks and puzzles mentioned in the paper, based on their GitHub repository. Lastly, we apply the model to new puzzles.
+
+\section{Tiny Recursive Models}
+\label{sec:Tiny Recursive Models}
+
+The Tiny Recursive Model (TRM) proposes a simplified approach to reasoning that moves away from the biological hierarchies of the Hierarchical Reasoning Model (HRM), which is inspired by the hierarchy of the brain (Wang et al. \cite{Wang2025HierarchicalModel}). Instead of using two separate networks operating at different frequencies, TRM utilizes a single ``tiny'' network to iteratively refine a solution. The architecture relies on a recursive loop that progressively improves a latent reasoning vector and a candidate solution.
+
+\subsection{Problem Formulation and Variables}
+Unlike LLMs that predict the next token $t_{i+1}$ given $t_{0}..t_{i}$, the TRM takes an input state $x$ -- representing the entire problem context (e.g., a full grid) -- and iteratively refines it, using the latent space, towards a \textit{complete} solution.
+
+The TRM abandons the biological metaphors of the HRM in favor of a clearer dual state representation. The current solution $y$ is the explicit, embedded candidate answer (previously denoted as $z_H$ in HRM). The latent reasoning variable $z$, on the other hand, is a hidden feature vector that stores computational history and constraints, analogous to a ``Chain-of-Thought'' in embedding space (denoted as $z_L$ in HRM).
+
+The TRM also avoids the need for multiple networks by using a single network $f_\theta$ to handle both latent reasoning and solution updates.
+
+\subsection{A Single Recursion Process}
+The core of the TRM is the \textit{Recursion Process}. Unlike standard recurrent networks that simply unroll over time, the TRM separates "thinking" from "answering." A single recursion process consists of two phases defined by the hyperparameter $n$:
+
+\begin{enumerate}
+    \item \textbf{Latent Reasoning:} The model updates the latent variable $z$ repeatedly for $n$ iterations. In each iteration, the model considers the input $x$, the current solution $y$, and the previous reasoning $z$:
+    \begin{align}
+        z \leftarrow f_\theta(x + y + z) \quad \text{for } i=1 \dots n
+    \end{align}
+    This step allows the model to perform $n$ steps of computation without committing to a new answer.
+    \item \textbf{Solution Refinement:} After $n$ latent steps, the model updates the proposed solution $y$ exactly once using the refined reasoning $z$:
+    \begin{align}
+        y \leftarrow f_\theta(y + z)
+    \end{align}
+    Crucially, this step does not directly observe $x$, forcing the model to rely on the reasoning encoded in $z$.
+\end{enumerate}
+
+\subsection{Deep Supervision and Effective Depth}
+To solve complex tasks, the TRM employs \textit{Deep Supervision} in an outer loop, controlled by the hyperparameter $N+$ (set to 16 in the paper). In each supervision step, the model tries to improve the tuple $(y, z)$ closer to the ground truth.
+
+To simulate a very deep network without the memory cost of Backpropagation Through Time (BPTT), TRM introduces the recursion depth hyperparameter $T$. Inside one supervision step, the model runs the full recursion process (defined above) $T$ times. For the first $T-1$ times, the recursion process is run \textit{without gradients} to prime the variables $y$ and $z$. For the $T$-th time, the recursion process is run with gradients enabled.
+
+This technique, distinct from the 1-step gradient approximation used in HRM, allows the model to backpropagate through a full recursion process ($n$ latent updates + 1 solution update) while benefiting from the depth of $T \times (n+1)$ total evaluations.
+
+\subsection{Adaptive Computational Time (ACT)}
+While $N_\text{sup}$ defines the maximum number of steps, the TRM uses Adaptive Computation Time (ACT) to decide when to stop thinking. Unlike HRM, which required a secondary forward pass for Q-learning, TRM learns a halting probability $q$ via a simple Binary Cross-Entropy loss on the output head. This allows the model to dynamically terminate the supervision loop when a confident solution is reached. If the value indicates high confidence during training, the loop breaks, and the model moves to the next data sample, which is critical for training efficiency and model generalization. The TRM thus learns to stop as soon as it finds the solution.
+
+Interestingly, while ACT is vital for training, the authors do not strictly use it to stop early during testing/inference.
+
+\subsection{Architecture Variants: Attention vs. MLP}
+\label{ssec:variants}
+
+The TRM architecture allows for flexibility in the \textit{mixing} mechanism used within the network $f_\theta$. This mixing mechanism is responsible for exchanging information across the sequence dimension, allowing different parts of the input (e.g., distant grid cells) to communicate and influence each other's representations The paper proposes two distinct variants tailored to different context lengths ($L$):
+
+\begin{itemize}
+    \item \textbf{TRM-Attention (Self-Attention):} This variant uses standard Multi-Head Self-Attention. It is designed for tasks with large context lengths ($L \gg D$), such as the $30 \times 30$ grids found in the Maze-Hard and ARC-AGI datasets. The paper demonstrates that this variant is necessary for tasks requiring long-range spatial reasoning on larger maps.
+    
+    \item \textbf{TRM-MLP (Attention-Free):} Inspired by the MLP-Mixer, this variant replaces the self-attention layer with a Multi-Layer Perceptron applied across the sequence dimension. This approach is computationally cheaper and proved superior for tasks with small, fixed context lengths ($L < D$), such as Sudoku ($9 \times 9$). 
+\end{itemize}
+
+\section{Dataset Structure}
+\label{sec:data}
+
+A critical component of training on many variants of puzzles is the data hierarchy, which prevents data leakage and ensures robust evaluation. The datasets are organized into three levels. Firstly, \textit{groups} are the atomic unit for Train/Test splitting. They prevent data leakage by bundling \textit{puzzles}, which are variations of a group generated via augmentation. For Sudoku, this includes digit permutations, band shuffling, and transposition. For Maze, this includes the 8 dihedral symmetries (rotations and flips). Of course, an equivalent representation of a base puzzle, on which we train the TRM, cannot be present in the test set. Groups prevent this data leakage. Lastly, within each puzzle, there are \textit{examples}, which are actual Input/Label tensor pairs. 
+
+The data is flattened for processing. For example, a simple puzzle state might be represented as an integer vector like \texttt{[1, 3, 0, 5, 2, 4]}, where \texttt{0} represents an empty cell or padding, and other integers represent grid values.
+
+
+\section{Experiment setups}
+\label{sec:experiments}
+
+\subsection{Suitability of Static Constraint Tasks}
+We determined that Sudoku and Maze are optimal fits for the TRM architecture as they represent static in-filling tasks governed by global constraints. In Sudoku, the architecture's recursive cycles enable constraint propagation across the grid topology; for example, a digit placed at $(0,0)$ restricts valid possibilities at $(8,8)$. Similarly, Maze solving requires handling non-local dependencies where a barrier at coordinate $(29, 29)$ may invalidate a pathing decision at $(5, 5)$. The TRM's recursive latent updates ($z$) effectively allow the model to simulate backtracking and path verification internally before committing to a final static output $y$.
+
+\subsection{Analysis of the Tower of Hanoi Failure}
+We attempted to extend the TRM to a sequential planning domain using the Towers of Hanoi. We generated datasets mapping the current state to the next optimal \textit{action} and, alternatively, the next optimal \textit{state}. While the model achieved $100\%$ training accuracy on setups with $3\text{--}6$ disks, it failed to generalize, achieving $0\%$ accuracy on test cases with $7\text{--}9$ disks. We attribute this failure to two primary factors.
+
+Firstly, our data encoding mapped disk $N$ to input channel $N$. During training, the model observed zero activation in channels $7$, $8$, and $9$. Consequently, during testing, the model encountered inputs in these previously ``dead'' channels. As the TRM (specifically the MLP-Mixer variant) learns position-dependent weights and is not permutation invariant, it lacked the mechanism to apply learned logic to these novel feature spaces.
+
+Secondly, Hanoi is inherently a trajectory task where the solution is an exponential sequence of moves ($2^N - 1$). The TRM is designed as a fixed-point solver that converges on a static global solution. Ideally, the model would output the full sequence, but the exponential output size precludes fitting the solution into a fixed grid. By constraining the TRM to predict only the \textit{next step}, we underutilized its recursive capacity; the optimal next move is often an $O(1)$ lookup operation that does not benefit from the deep latent reasoning required to solve global constraints.
+
+\subsection{$N$-Queens}
+Like Sudoku, the $N$-Queens puzzle is a Constraint Satisfaction Problem (CSP) requiring the propagation of constraints across the board. 
+
+% TODO: generate the input and output side by side
+% \begin{minipage}
+% Here, there should be an input board with mask and an output label
+% \end{minipage}
+
+We selected a board size of $N=12$ because it offers a non-trivial solution space ($14,200$ unique solutions), preventing simple memorization. For each of these solutions, we created a mask that covered 30\% to 70\% of the board, which we gave to the TRM as input $x$. The label was the unmasked board with all $N=12$ queens placed in a correct way.
+
+Standard $N$-Queens is a one-to-many problem (a single board configuration may allow multiple valid queen placements). Training the TRM (or any other deterministic model with Cross-Entropy loss) on one-to-many data causes the model to learn the average of all valid targets, resulting in a low-confidence, ``blurry'' output.
+
+That's why we created a ``unambiguous'' variant as well, where we strictly enforced a one-to-one mapping: for every generated mask, we utilized a backtracking solver to verify uniqueness. Any puzzle yielding multiple valid solutions was discarded in this variant, ensuring the TRM is trained strictly on function approximation rather than generative modeling.
+
+For both puzzle variants, we trained the TRM using a MLP head, as suggested by the author in Section 4.5 of the original paper for puzzles of limited dimensionality (here, $D = 144$). Furthermore, we used a batch size of $512$ and a learning rate of \SI{1e-4}{}.
+
+\subsection{Math Arithmetic}
+
+To further test the generalization capabilities of the TRM beyond spatial constraint satisfaction tasks, we introduced a symbolic reasoning task: math arithmetic. Unlike visual puzzles, where constraints propagate through a 2D topology, arithmetic requires hierarchical processing of operations (e.g., resolving parentheses) and sequential calculation.
+
+We generated a synthetic dataset of \num{100000} training examples and \num{10000} test examples using a recursive generation process. Each sample consists of a nested mathematical expression involving integers up to 20 and four operators: addition, subtraction, multiplication, and modulo ($+$,$-$,$*$,$\% $). The expressions are generated with a maximum recursion depth of 4, resulting in strings such as $((12+4)*3)=48$.
+
+A critical adaptation was required for the TRM's masking strategy. In standard autoregressive modeling, the loss is often calculated over the \textit{entire} sequence. However, as the TRM is trained as a static solver (mapping input $x$ directly to solution $y$), we formulated the task as a ``fill-in-the-blank'' problem. The \textit{input} tensor contains the expression followed by the equals ($=$) sign, with the answer masked (padded with zeros). Conversely, the \textit{label} tensor masks the entire expression, leaving only the result. This ensures that the Cross-Entropy loss is calculated exclusively on the answer digits, forcing the model to perform the calculation internally within its latent $z$, rather than memorizing the input sequence.
+
+We hypothesize that the TRM's recursive iterations ($n$) effectively act as a computational scratchpad, allowing the tiny network to resolve inner parentheses and intermediate values before committing to the final static integer output.
+
+\subsection{Chess Move Prediction}
+
+TODO: Malthe
+
+\section{Results}
+
+\subsection{Reproducing Maze and Sudoku Results}
+
+\begin{figure}[htb]
+\includegraphics[width=\columnwidth]{figures/soduko_exact_acc.png}
+\includegraphics[width=\columnwidth]{figures/sudoku_halt_acc.png}
+\caption{Test (top) and $q_\text{halt}$ (bottom) accuracies for the Sudoku dataset.}
+\label{fig:soduko_acc}
+\end{figure}
+
+To make sure that the author's code worked as explained in the paper, we first sought to reproduce the results obtained on the Maze and Sudoku Extreme datasets. Trying to first reproduce the Maze results, we submitted jobscripts to DTU HPC with the same specification from the author's GitHub repository. This, however, caused issues, as the memory requirements exceeded the available amount.
+
+Reproducing the results from the Sudoku dataset proved to be more plausible. Using the author's hyperparameters, we achieved a final accuracy of \SI{84.3}{\percent}, whereas the paper stated that they achieved an accuracy of \SI{87.4}{\percent}. This can be due to the limitations of DTU HPC, where we had a maximum run-time of 24 hours. This was not quite enough to run for the full amount of epochs specified in the GitHub repository, but as seen in figure \ref{fig:soduko_acc} the TRM seems to have converged, and achieving an accuracy of 84.3\% is sufficient to conclude that the architecture runs as described in the paper.
+
+\subsection{$N$-queens}
+
+Due to the fact that each regular $N$-queens problem has multiple solutions, the TRM maxed out at about $40\%$ accuracy, as can be seen in Figure \ref{fig:n_queens_acc}.
+
+For our unambiguous variant, the model achieved an overwhelmingly good accuracy of 98\% after only x epochs.
+
+% TODO Gemini: fill in further
+
+\subsection{Math Arithmetic}
+
+After \num{7000} epochs, the TRM achieved a test accuracy of \SI{43.2}{\percent} on the math expressions introduced earlier, as can be seen in Figure \ref{fig:math_acc}. The $q_\text{halt}$ accuracy at this point was \SI{88}{\percent}, indicating that the model was able to learn when to stop, efficiently optimizing training time.
+
+\begin{figure}[htb]
+\includegraphics[width=\columnwidth]{figures/Math_exact_acc.png}
+\includegraphics[width=\columnwidth]{figures/Math_halt_acc.png}
+\caption{Test (top) and $q_\text{halt}$ (bottom) accuracies for the Math Arithmetic dataset.}
+\label{fig:math_acc}
+\end{figure}
+
+\subsection{Chess Move Prediction}
+
+TODO: Malthe
+
+% \section{Related Work}
+% There is currently a lot of ongoing research within the field of tiny models, to challenge the assumption of strong reasoning requiring very large language models. 
+% Fu's article `Specializing Smaller Language Models towards Multi-Step Reasoning' \cite{Fu2023SpecializingReasoning} shows that it is possible to concentrate the ability of small models from generic directions to the target multi-step math reasoning task. 
+% Another article `Tina: Tiny Reasoning Models via LoRA' by Wang \cite{Wang2025Tina:LoRA} suggests a model called Tina, which makes parameter efficient updates during reinforcement learning, using low-rank adaptation (LoRA), to a tiny parameter base model. This method achieves good cost and compute efficiency.
+% Finally, the article `Distilling Step-by-Step! Outperforming Larger Language Models with Less Training Data and Smaller Model Sizes' by Hsieh \cite{Hsieh2023DistillingSizes}, extracts LLM rationales as additional supervision for training small models within a multi-task framework. They explain how their finetuned model outperforms the
+% few-shot prompted model using only 80\% of the available data.
+
+\section{Discussion}
+
+TODO: Malthe
+
+\section{Conclusion}
+
+TODO: Sara
+
+\newpage
+
+\section{Resources}
+
+\begin{itemize}
+ \item Project code:\\
+\href{https://github.com/schependom/DTU\_deep-learning-project}{github.com/schependom/DTU\_deep-learning-project}
+\item Original (author) repository:\\
+\href{https://github.com/SamsungSAILMontreal/TinyRecursiveModels}{github.com/SamsungSAILMontreal/TinyRecursiveModels}
+\end{itemize}
+
+\bibliographystyle{IEEEbib}
+%\bibliography{template}
+\bibliography{references.bib}
+\label{sec:ref}
+
+
+% \section{Major headings}
+% \label{sec:majhead}
+
+% Major headings, for example, "1. Introduction", should appear in all capital letters, bold face if possible, centered in the column, with one blank line before, and one blank line after. Use a period (".") after the heading number, not a colon.
+
+% \subsection{Subheadings}
+% \label{ssec:subhead}
+
+% Subheadings should appear in lower case (initial word capitalized) in boldface. They should start at the left margin on a separate line.
+
+% \subsubsection{Sub-subheadings}
+% \label{sssec:subsubhead}
+
+% Sub-subheadings, as in this paragraph, are discouraged. However, if you must use them, they should appear in lower case (initial word capitalized) and start at the left margin on a separate line, with paragraph text beginning on the following line. They should be in italics.
+
+% \section{Printing your paper}
+% \label{sec:print}
+
+% If the last page of your paper is only partially filled, arrange the columns so that they are evenly balanced if possible, rather than having one long column.
+
+% In \LaTeX, to start a new column (but not a new page) and help balance the last-page column lengths, you can use the command \verb|\pagebreak| as demonstrated on this page (see the \LaTeX source below).
+
+% \section{Illustrations, graphs, and photographs}
+% \label{sec:illust}
+
+% Illustrations must appear within the designated margins. They may span the two columns. If possible, position illustrations at the top of columns, rather than in the middle or at the bottom. Caption and number every illustration.
+
+% Since there are many ways, often incompatible, of including images in a \LaTeX document, below is an example of how to do this.
+
+% \begin{figure}[htb]
+% \fbox{\rule{0pt}{4cm}\rule{0.97\columnwidth}{0pt}}
+% \caption{Example of placing a figure with experimental results.}
+% \label{fig:res}
+% \end{figure}
+
+% % To start a new column (but not a new page) and help balance the last-page
+% % column length use \vfill\pagebreak.
+% % -------------------------------------------------------------------------
+% \vfill
+% \pagebreak
+
+% \section{Footnotes}
+% \label{sec:foot}
+
+% Use footnotes sparingly (or not at all!) and place them at the bottom of the column on the page on which they are referenced. Use Times 9-point type, single-spaced. To help your readers, avoid using footnotes altogether and include necessary peripheral observations in the text (within parentheses, if you prefer, as in this sentence).
+
+
+
+%List and number all bibliographical references at the end of the paper. References may be numbered (either alphabetically or in order of appearance) or follow the author–year citation style (e.g., using the \texttt{natbib} package). If you use a numeric style, cite references using square brackets, e.g., \cite{C2}. If you use an author–year style, cite using round brackets.
+
+\section*{Declaration of use of generative AI}
+
+This declaration \textbf{must} be filled out and included as the \textbf{final page} of the document. The questions apply to all parts of the work, including research, project writing, and coding.
+\begin{itemize}
+\item I/we have used generative AI tools: yes
+\end{itemize}
+If you answered \emph{yes}, please complete the following sections. List the generative AI tools you have used:
+\begin{itemize}
+\item ChatGPT by OpenAI
+\item Gemini by Google
+\item Claude by Anthropic
+\item Microsoft Copilot inside VSCode
+\end{itemize}
+Describe how the tools were used:
+\begin{description}
+\item[What did you use the tool(s) for?]
+We mostly used the tools in the coding process. Especially in regard to debugging. We also used it for finding articles that could be relevant for the `Related Work' section.
+\item[At what stage(s) of the process did you use the tool(s)?]
+For the coding, it was mainly in the initial phase for getting it up and running both on our local computers but also on the GPU. 
+For the `Related Work' section it was also used initially as inspiration on where to find relevant articles.
+\item[How did you use or incorporate the generated output?]
+\end{description}
+
+\end{document}

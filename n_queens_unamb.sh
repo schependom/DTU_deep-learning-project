@@ -90,7 +90,7 @@ weight_decay=1.0 \
 puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 ema=True \
-arch.mlp_t=False \
+arch.mlp_t=True \
 arch.pos_encodings=none  # or learned
 
 echo "Job finished at:"
