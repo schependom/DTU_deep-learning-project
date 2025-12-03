@@ -115,6 +115,11 @@ Activate the virtual environment:
 source .venv/bin/activate
 ```
 
+Set CUDA_HOME variable such that the devil itself (the adam-atan2 package) installs properly.
+```bash
+export CUDA_HOME=${CUDA_ROOT:-$(dirname $(dirname $(which nvcc)))}
+```
+
 Now install all packages, if not already done:
 
 ```bash
