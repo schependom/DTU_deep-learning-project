@@ -27,4 +27,6 @@ src/wandb
 *.out
 wandb/
 .env
+.venv/
+.venv_old/
 

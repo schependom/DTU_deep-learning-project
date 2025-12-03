@@ -23,8 +23,8 @@
         - Update $y \gets f_\theta(y + z)$
     - If $\hat{q}_\text{halt}$ indicates to halt, break
 
-During training, $\hat{q}_\text{halt}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
-During testing, $\hat{q}_\text{halt}$ is ignored and the model is run for $N_\text{sup}$ steps.
+During training, $\hat{q}\_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
+During testing, $\hat{q}\_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
 
 ## Setup on DTU HPC
 
@@ -101,7 +101,35 @@ Also load CUDA (otherwise Adam-atan2 won't install):
 module load cuda/12.6
 ```
 
-#### Activating the existing virtual environment
+#### Creating a new virtual environment
+
+If the virtual environment does not exist yet (it should!), create it (**inside** the project folder!) with:
+
+```bash
+python3 -m venv .venv # inside DTU_deep-learning-project/
+```
+
+Activate the virtual environment:
+
+```bash
+source .venv/bin/activate
+```
+
+Set CUDA_HOME variable such that the devil itself (the adam-atan2 package) installs properly.
+```bash
+export CUDA_HOME=${CUDA_ROOT:-$(dirname $(dirname $(which nvcc)))}
+```
+
+Now install all packages, if not already done:
+
+```bash
+python3 -m pip install --upgrade pip wheel setuptools
+python3 -m pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
+python3 -m pip install -r requirements.txt
+pip install --no-cache-dir --no-build-isolation adam-atan2
+```
+
+#### Activating an existing virtual environment
 
 I already created a virtual environment called `.venv` in the project folder.
 Activate it (from within the `DTU_deep-learning-project/` folder!) with:
@@ -121,45 +149,6 @@ You can (but right now don't have to) deactivate the environment with:
 
 ```bash
 deactivate
-```
-
-#### Installing (extra) packages if needed
-
-To install packages inside the `venv`, use:
-
-```bash
-python3 -m pip install <packages>
-```
-
-We are used to simply using `pip3`, but this is the recommended and correct way of installing packages. The `-m` flag in Python allows us to run modules as scripts. This way we ensure that the module is located in your current python environment, not the global python installation.
-
-#### Creating a new virtual environment
-
-If the virtual environment does not exist yet (it should!), create it (**inside** the project folder!) with:
-
-```bash
-python3 -m venv .venv # inside DTU_deep-learning-project/
-```
-
-Activate the virtual environment:
-
-```bash
-source .venv/bin/activate
-```
-
-Now install all packages, if not already done:
-
-```bash
-python3 -m pip install --upgrade pip wheel setuptools
-python3 -m pip install --pre --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu126
-python3 -m pip install -r requirements.txt
-python3 -m pip install --no-cache-dir --no-build-isolation adam-atan2
-```
-
-To update the packages using the `requirements.txt` file:
-
-```bash
-python3 -m pip install --upgrade -r requirements.txt
 ```
 
 ## Datasets
@@ -195,7 +184,7 @@ Group 1:
   └─ Puzzle 4: [Example 10]
 ```
 
-In sudoku (one example per puzzle), this looks like:
+In Sudoku (one example per puzzle), this looks like:
 
 ```
 Group 0:
@@ -212,7 +201,7 @@ In maze, we do dihedral transforms to produce 7 additional puzzles on top of the
 When you generate a dataset, you get these files:
 
 ```txt
-data/hanoi/
+data/(puzzle)/
 ├── train/
 │   ├── dataset.json                    # Metadata
 │   ├── all__inputs.npy                 # Input sequences [num_examples, seq_len]
@@ -356,7 +345,7 @@ Split: Test Set (Unique Base Solution Z)
 
 Note that we limit the test set to the **"canonical" orientation only** (no transformations and a single mask pattern), to reduce evaluation time. Generating 8x augmentations for evaluation is unnecessary. If the model has learned the concept of $N$-Queens from the training set (which included rotations), it should be able to solve the 0-degree test case perfectly.
 
-## Hanoi
+## Hanoi (didn't work very well)
 
 ### Generate the data
 
