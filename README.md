@@ -1,34 +1,52 @@
 # Tiny Recursive Models (TRMs)
 
+| Name                      | Student number |
+| ------------------------- | -------------- |
+| Vincent Van Schependom    | s251739        |
+| Malthe Bresler            | s214631        |
+| Jacob Corkill Nielsen     | s204093        |
+| Sara Maria Bjørn Andersen | s202186        |
+
+## Introduction
+
+This is the repository of our Deep Learning group project, about the [Tiny Recursive Model](https://github.com/SamsungSAILMontreal/TinyRecursiveModels) (TRM), proposed by Alexia Jolicoeur-
+Martineau.
+
+The report can be found [here](Report/report.pdf).
+
 ## Terminology
 
-- $x$: input problem
-- $z = z_L$: latent space variable
-- $y = z_H$: current solution
-- $f_\theta = f_L = f_H$: TRM function (lower-level and higher-level are the same function with same parameters)
-- $n$: number of $z \gets f_\theta(x + y +z)$ operations per *full recursion step*
-- $T-1$: number of *full recursion steps* WITH gradients
-- $N_\text{sup}$: number of deep supervision steps
+| Symbol                 | Description                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| $x$                    | input problem                                                                          |
+| $z = z_L$              | latent space variable                                                                  |
+| $y = z_H$              | current solution                                                                       |
+| $f_\theta = f_L = f_H$ | TRM function (lower-level and higher-level are the same function with same parameters) |
+| $n$                    | number of $z \gets f_\theta(x + y +z)$ operations per _full recursion step_            |
+| $T-1$                  | number of _full recursion steps_ WITH gradients                                        |
+| $N_\text{sup}$         | number of deep supervision steps                                                       |
 
-## Workflow
+## Model Architecture
 
-- For maximum $N_\text{sup}$ deep supervision steps:
-    - For $T-1$ full recursion steps:
-        - For $n$ times:
-            - Update $z \gets f_\theta(x + y + z)$
-        - Update $y \gets f_\theta(y + z)$
-    - Final full recursion step (no gradients):
-        - For $n$ times:
-            - Update $z \gets f_\theta(x + y + z)$
-        - Update $y \gets f_\theta(y + z)$
-    - If $\hat{q}_\text{halt}$ indicates to halt, break
+For maximum $N_\text{sup}$ deep supervision steps:
 
-During training, $\hat{q}\_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
-During testing, $\hat{q}\_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
+-   For $T-1$ full recursion steps **without gradients**:
+    -   For $n$ times:
+        -   Update $z \gets f_\theta(x + y + z)$
+    -   Update $y \gets f_\theta(y + z)$
+-   Final full recursion step **with gradients**:
+    -   For $n$ times:
+        -   Update $z \gets f_\theta(x + y + z)$
+    -   Update $y \gets f_\theta(y + z)$
+-   If $\hat{q}_\text{halt}$ indicates to halt, break
+
+\
+During training, $\hat{q}_{\text{halt}}$ is calculated with binary cross-entropy loss: predicted correct vs actual correct.
+During testing, $\hat{q}_{\text{halt}}$ is ignored and the model is run for $N_\text{sup}$ steps.
 
 ## Setup on DTU HPC
 
-> *NOTE*: DTU uses LSF cluster management software. If you are using a different HPC system, the job submission commands will differ.
+> _NOTE_: DTU uses LSF cluster management software. If you are using a different HPC system, the job submission commands will differ.
 
 ### Setup SSH
 
@@ -103,7 +121,7 @@ module load cuda/12.6
 
 #### Creating a new virtual environment
 
-If the virtual environment does not exist yet (it should!), create it (**inside** the project folder!) with:
+If the virtual environment does not exist yet, create it (**inside** the project folder!) with:
 
 ```bash
 python3 -m venv .venv # inside DTU_deep-learning-project/
@@ -116,6 +134,7 @@ source .venv/bin/activate
 ```
 
 Set CUDA_HOME variable such that the devil itself (the adam-atan2 package) installs properly.
+
 ```bash
 export CUDA_HOME=${CUDA_ROOT:-$(dirname $(dirname $(which nvcc)))}
 ```
@@ -151,28 +170,34 @@ You can (but right now don't have to) deactivate the environment with:
 deactivate
 ```
 
-## Datasets
+## Technical Implementation Details
 
-### Hierarchy
+### Data Hierarchy
 
-How does the `PuzzleDataset` class work?
-The dataset has a 3-level hierarchy:
+A critical component of training on many _variants_ of puzzles is the data hierarchy. The datasets are organized into three levels, preventing _data leakage_.
 
--   **Groups**
+The `PuzzleDataset` class implements this hierarchy:
+
+1.  **Groups**
+
     -   Collections of puzzles that are related
     -   Atomic unit for train/test splitting
     -   If Group $x$ is in the training set, no puzzles from Group $x$ appear in the test set
     -   Prevent data leakage
     -   e.g., augmentations of the same base puzzle
--   **Puzzles**
+
+2.  **Puzzles**
+
     -   "Variants" of the same problem
     -   Specific augmentation or transformation of the Group
     -   Increase dataset size and forces model to learn invariant rules, regardless of representation
--   **Examples**
+
+3.  **Examples**
+
     -   Input-Output pairs
     -   In sudoku and maze, **1 example per puzzle**
 
-For example:
+**Example:**
 
 ```txt
 Group 0:
@@ -183,18 +208,6 @@ Group 1:
   ├─ Puzzle 3: [Example 6, Example 7, Example 8, Example 9]
   └─ Puzzle 4: [Example 10]
 ```
-
-In Sudoku (one example per puzzle), this looks like:
-
-```
-Group 0:
-  ├─ Puzzle 0:      original board
-  └─ Puzzle 1..N:   digit permutations,
-                    shuffling rows, columns within bands/stacks,
-                    transpositions
-```
-
-In maze, we do dihedral transforms to produce 7 additional puzzles on top of the base `Puzzle 0` within the group.
 
 ### File Structure
 
@@ -213,28 +226,35 @@ data/(puzzle)/
     └── (same structure)
 ```
 
--   `dataset.json`:
-    -   Contains the "schema" of the data.
-    -   `vocab_size`: Total number of distinct token IDs (e.g., 11 for Sudoku: 0=pad, 1-9=digits).
-    -   `seq_len`: The fixed length of the input/output vector (e.g., 81 for Sudoku, 900 for Maze).
--   `all__inputs.npy`:
-    -   Shape `[N_samples, seq_len]`.
-    -   Contains the initial problem state.
-    -   For Sudoku: The board with clues (1-9) and blanks (0).
-    -   For Maze: The walls (#), start (S), and goal (G).
--   `all__labels.npy`:
-    -   Shape `[N_samples, seq_len]`.
-    -   Contains the target solution state (**final** solution!).
-    -   For Sudoku: The completed board (1-9).
-    -   For Maze: The path from start to goal (., S, G).
-    -   The model does **not** predict one step.
-        -   It takes the `input` (Unsolved),
-        -   processes it internally for K cycles,
-        -   the output head is trained to match `label` (Fully Solved).
--   `all__puzzle_indices`, `all__group_indices`:
-    -   Used for data augmentation.
-    -   If you generate 8 augmentations (rotations/flips) of one Sudoku board, they share a `group_index`.
-    -   This ensures that when splitting Train/Test, you don't put a rotated version of a training puzzle into the test set (data leakage).
+`dataset.json`:
+
+-   Contains the "schema" of the data.
+-   `vocab_size`: Total number of distinct token IDs (e.g., 11 for Sudoku: 0=pad, 1-9=digits).
+-   `seq_len`: The fixed length of the input/output vector (e.g., 81 for Sudoku, 900 for Maze).
+
+`all__inputs.npy`:
+
+-   Shape `[N_samples, seq_len]`.
+-   Contains the initial problem state.
+-   For Sudoku: The board with clues (1-9) and blanks (0).
+-   For Maze: The walls (#), start (S), and goal (G).
+
+`all__labels.npy`:
+
+-   Shape `[N_samples, seq_len]`.
+-   Contains the target solution state (**final** solution!).
+-   For Sudoku: The completed board (1-9).
+-   For Maze: The path from start to goal (., S, G).
+-   The model does **not** predict one step.
+    -   It takes the `input` (Unsolved),
+    -   processes it internally for K cycles,
+    -   the output head is trained to match `label` (Fully Solved).
+
+`all__puzzle_indices`, `all__group_indices`:
+
+-   Used for data augmentation.
+-   If you generate 8 augmentations (rotations/flips) of one Sudoku board, they share a `group_index`.
+-   This ensures that when splitting Train/Test, you don't put a rotated version of a training puzzle into the test set (data leakage).
 
 How the indices work:
 
@@ -271,61 +291,67 @@ The `_iter_test` function does this:
 
 This ensures we evaluate on every single example exactly once.
 
-## $N$-Queens
+## Experiments
+
+We investigated how well we could recreate the results of the paper. We were able to obtain a Sudoku accuracy of $84.3\%$, just shy of the papers $87.4\%$, most likely due to 24h train limit.
+
+We then continued to investigate performance for a CSP, namely $N$-Queens, as well as other types of puzzles, like the Towers of Hanoi, Math Arithmetic and Chess Move Prediction to test the limits of the TRM.
+
+All jobscripts can be found in this main folder as `job-[experiment].sh`.
+
+### $N$-Queens
 
 The $N$-Queens problem involves placing N queens on an N×N chessboard such that no two queens threaten each other. The TRM functions as a **pattern completion engine**, not a next move predictor.
 
-### The choice of $N=12$
+#### The choice of $N=12$
 
 For $N=12$, there are 14,200 unique valid solutions. This size is computationally manageable while still being complex enough to challenge the model.
 
-### Input
+#### Input
 
-- A 12×12 grid (flattened to length 144).
-- Some cells contain a `Queen` (Value 2).
-- All other cells are marked as `Unknown`/`Empty` (Value 0 or 1).
-- This represents a "partial thought" or a set of constraints: "I know a `Queen` goes here and here, but I don't know the rest."
+-   A $12 \times 12$ grid (flattened to length 144).
+-   Some cells contain a `Queen` (Value 2).
+-   All other cells are marked as `Unknown`/`Empty` (Value 0 or 1).
+-   This represents a "partial thought" or a set of constraints: "I know a `Queen` goes here and here, but I don't know the rest."
 
-### Prediction
+#### Prediction
 
-- The model outputs the entire 12×12 grid simultaneously.
-- Every cell is filled with a definite decision: "`Queen`" or "`Empty`".
-- The goal is for this final grid to satisfy the global N-Queens constraints (no attacks on rows, columns, or diagonals) while respecting the initial "hints" provided in the input.
+-   The model outputs the entire $12 \times 12$ grid simultaneously.
+-   Every cell is filled with a definite decision: `Queen` or `Empty`.
+-   The goal is for this final grid to satisfy the global N-Queens constraints (no attacks on rows, columns, or diagonals) while respecting the initial "hints" provided in the input.
 
-### Dataset Structure
+#### Dataset Structure
 
 The dataset uses the standard TRM 3-level hierarchy, but adapted for the N-Queens generation process:
 
-- **The "Hidden" Root (Base Solution):**
+-   **The base solution:**
 
-    - Before creating groups, we solve the N-Queens problem to find all unique Base Solutions (e.g., for N=12, there are 14,200 unique completed boards).
+    -   Before creating groups, we solve the N-Queens problem to find all unique Base Solutions (e.g., for $N=12$, there are 14,200 unique completed boards).
 
-    - Crucial Step: We split these Base Solutions into train and test lists first. This is the primary mechanism against data leakage.
+-   **Level 1: Group (specific problem instance)**
 
-- **Level 1: Group (A Specific Problem Instance)**
-
-    - A "Group" in this dataset represents a single Masked Problem derived from a Base Solution.
+    -   A single **masked problem** derived from a base solution.
 
     -   Example: "Solution #42 with 50% of queens hidden."
 
-    -   In the training loop, we generate multiple different mask patterns (different difficulty levels) for the same Base Solution. Each mask pattern becomes its own Group.
+    -   In the training loop, we generate multiple different mask patterns (different difficulty levels) for the same base solution. Each mask pattern becomes its own group.
 
-- **Level 2: Puzzle (Augmentations)**
+-   **Level 2: Puzzle (augmentations)**
 
-    -   Inside each Group, we generate 8 Puzzles.
+    -   Inside each group, we generate multiple puzzles.
 
-    -   eThese correspond to the Dihedral Symmetries (Rotations 0/90/180/270 + Flips) of that specific masked problem.
+    -   These correspond to the Dihedral Symmetries (Rotations 0/90/180/270 + Flips) of that specific masked problem.
 
-    -   Because the $N$-Queens constraint is symmetric (a rotated solution is still a valid solution), these 8 puzzles are mathematically valid.
+    -   Because the $N$-Queens constraint is symmetric (a rotated solution is still a valid solution), these puzzles are mathematically valid.
 
-- **Level 3: Example**
+-   **Level 3: Example**
 
     -   The actual input/label tensors.
 
 Thus, the overall structure looks like this:
 
 ```txt
-[Split: Train Set (Unique Base Solutions A..Y)]
+Split: Train Set (Unique Base Solutions A..Y)
    |
    ├── Group 1 (Solution A, Mask Pattern 1)
    |     ├── Puzzle 1 (0° Rotation)
@@ -337,7 +363,7 @@ Thus, the overall structure looks like this:
    |
    └── Group 3 (Solution B, Mask Pattern 1) ...
 
-[Split: Test Set (Unique Base Solution Z)]
+Split: Test Set (Unique Base Solution Z)
    |
    └── Group 100 (Solution Z, Mask Pattern 1)
          └── Puzzle 1 (0° Rotation only)
@@ -345,9 +371,15 @@ Thus, the overall structure looks like this:
 
 Note that we limit the test set to the **"canonical" orientation only** (no transformations and a single mask pattern), to reduce evaluation time. Generating 8x augmentations for evaluation is unnecessary. If the model has learned the concept of $N$-Queens from the training set (which included rotations), it should be able to solve the 0-degree test case perfectly.
 
-## Hanoi (didn't work very well)
+### Sudoku Extreme
 
-### Generate the data
+To run Sudoku Extreme, we first generated the dataset as stated in the authors [`src/README.md`](src/README.md). After this, we simply ran the jobscript `job-sudoku.sh` on DTU HPC to obtain the results discussed in the project.
+
+We also tried to recreate the results for the Maze dataset. The dataset could again be prepared by following the code as specified in the original [`src/README.md`](src/README.md). Our last test job script can be seen in the file `maze.sh`. However, this required too many GPUs and thus never ran. We also tried only requesting one GPU, but when trying this we ran out of GPU memory.
+
+### Hanoi (didn't work very well)
+
+#### Generate the data
 
 From the `src/` folder, run:
 
@@ -369,9 +401,10 @@ View the usage information with:
 python dataset/build_hanoi_dataset.py --help
 ```
 
-### Visualize the data
+#### Visualize the data
 
 The `visualize_hanoi.py` script will _automatically_ detect which encoding was used (action or state) and visualize accordingly.
+
 Assuming you ran `./build_hanoi` previously, from the `src/` folder, run:
 
 ```bash

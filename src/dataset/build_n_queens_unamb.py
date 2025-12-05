@@ -216,7 +216,7 @@ def process_subset(set_name: str, base_solutions: List[np.ndarray], output_dir: 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", type=str, default="data/n_queens_unique")
-    parser.add_argument("--n", type=int, default=8)
+    parser.add_argument("--n", type=int, default=12)
     parser.add_argument("--aug", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()

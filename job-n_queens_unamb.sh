@@ -2,7 +2,7 @@
 
 ### General options
 #BSUB -q gpua100
-#BSUB -J trm_nqueens
+#BSUB -J trm_nqueens_unamb
 #BSUB -n 4
 #BSUB -gpu "num=1:mode=exclusive_process"
 #BSUB -W 5:00
@@ -32,8 +32,26 @@ export N_SIZE=12
 # Sudoku is 81. Maze is 900.
 # 144 is small enough for mlp_t (Mixer).
 
-export RUN_NAME="nqueens_${N_SIZE}_${DATE_TAG}"
-export DATA_PATH="src/data/n_queens_${N_SIZE}"
+export RUN_NAME="nqueens_unamb_${N_SIZE}_${DATE_TAG}"
+
+# Check for data in root 'data/' (preferred) or 'src/data/' (legacy)
+if [ -d "data/n_queens_unamb_${N_SIZE}" ]; then
+    export DATA_PATH="data/n_queens_unamb_${N_SIZE}"
+    echo "Found data at ${DATA_PATH}"
+elif [ -d "src/data/n_queens_unamb_${N_SIZE}" ]; then
+    export DATA_PATH="src/data/n_queens_unamb_${N_SIZE}"
+    echo "Found data at ${DATA_PATH}"
+else
+    # Generate in root 'data/' if not found
+    export DATA_PATH="data/n_queens_unamb_${N_SIZE}"
+    echo "Data not found. Generating at ${DATA_PATH}..."
+    python src/dataset/build_n_queens_unamb.py \
+        --out "${DATA_PATH}" \
+        --n "${N_SIZE}" \
+        --aug 1 \
+        --seed 42
+    echo "Data generation complete."
+fi
 
 echo "Starting Training: ${RUN_NAME}"
 mkdir -p "${REPO}/checkpoints/${RUN_NAME}"
@@ -61,7 +79,7 @@ arch.L_layers=2 \
 arch.H_cycles=3 \
 arch.L_cycles=6 \
 evaluators="[{name: n_queens@NQueensEvaluator}]" \
-epochs=10 \
+epochs=500 \
 eval_interval=1 \
 min_eval_interval=0 \
 global_batch_size=128 \
@@ -73,7 +91,7 @@ puzzle_emb_weight_decay=1.0 \
 +run_name=${RUN_NAME} \
 ema=True \
 arch.mlp_t=True \
-arch.pos_encodings=none
+arch.pos_encodings=none  # or learned
 
 echo "Job finished at:"
 date
