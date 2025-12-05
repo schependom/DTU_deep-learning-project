@@ -411,3 +411,15 @@ Assuming you ran `./build_hanoi` previously, from the `src/` folder, run:
 python dataset/visualize_hanoi.py --dir data/hanoi_action/train
 python dataset/visualize_hanoi.py --dir data/hanoi_state/train
 ```
+
+### Chess Move Prediction
+The 200k subset of the lichess open database: https://database.lichess.org/#evals exists in `chess_200k.csv`, but if a different size subset is needed, it can be created via `create_chess_csv.py`.
+
+The chess dataset can be built in the right format via
+```bash
+build_chess.sh
+```
+Then run the job script
+```bash
+bsub < chess.sh
+``` 
