@@ -7,16 +7,15 @@ from tqdm import tqdm
 
 from common import PuzzleDatasetMetadata
 
-# ---------------------------------------------------------------------
-# CONFIG
-# ---------------------------------------------------------------------
+"""
+This file uses the chess position / move csv created from the lichess data-base. Build the csv first with create_chess_csv.py.
+"""
+
 
 PAD = 0
 IGNORE_LABEL_ID = 0
 
-# ---------------------------
 # FEN TOKENIZATION
-# ---------------------------
 
 FEN_CHARS = list("prnbqkPRNBQK12345678/ wb-abcdefgh")
 FEN_CHARS = sorted(set(FEN_CHARS), key=lambda x: FEN_CHARS.index(x))
@@ -34,9 +33,8 @@ def encode_fen_to_ids(fen: str, max_len: int = MAX_FEN_LEN) -> np.ndarray:
     return np.array(ids, dtype=np.uint16)
 
 
-# ---------------------------
+
 # MOVE TOKENIZATION
-# ---------------------------
 
 def square_to_idx(sq: str) -> int:
     file = "abcdefgh".index(sq[0])
@@ -62,9 +60,7 @@ LABEL_OFFSET = FEN_VOCAB_SIZE
 MODEL_VOCAB_SIZE = FEN_VOCAB_SIZE + MOVE_VOCAB_SIZE
 
 
-# ---------------------------------------------------------------------
 # DATASET CREATION 
-# ---------------------------------------------------------------------
 
 def load_chess_rows(csv_path: str, fen_col: str = "FEN", move_col: str = "Best_Move"):
     rows = []
@@ -103,18 +99,15 @@ def process_subset(set_name: str, samples, output_dir: str):
     seq_len = 1 + MAX_FEN_LEN
 
     for fen, move in tqdm(samples, desc=f"Processing {set_name}"):
-        # ---------------------------
         # Encode inputs
-        # ---------------------------
-        fen_ids = encode_fen_to_ids(fen)  # shape: [80]
+        fen_ids = encode_fen_to_ids(fen)
         move_id = uci_to_move_id(move)
         label_token = LABEL_OFFSET + move_id
 
-        # flat sequence
         inp = np.zeros(seq_len, dtype=np.uint16)
         lab = np.zeros(seq_len, dtype=np.int32)
 
-        inp[0] = label_token
+        inp[0] = PAD
         inp[1:] = fen_ids
 
         lab[0] = label_token
@@ -130,7 +123,6 @@ def process_subset(set_name: str, samples, output_dir: str):
         results["puzzle_indices"].append(example_id)
         results["group_indices"].append(puzzle_id)
 
-    # Convert to ndarray
     final = {
         "inputs": np.stack(results["inputs"]),
         "labels": np.stack(results["labels"]),
@@ -139,12 +131,10 @@ def process_subset(set_name: str, samples, output_dir: str):
         "group_indices": np.array(results["group_indices"], dtype=np.int32),
     }
 
-    # Save arrays
     os.makedirs(os.path.join(output_dir, set_name), exist_ok=True)
     for k, v in final.items():
         np.save(os.path.join(output_dir, set_name, f"all__{k}.npy"), v)
 
-    # Metadata
     metadata = PuzzleDatasetMetadata(
         seq_len=seq_len,
         vocab_size=MODEL_VOCAB_SIZE,
@@ -161,19 +151,13 @@ def process_subset(set_name: str, samples, output_dir: str):
     with open(os.path.join(output_dir, set_name, "dataset.json"), "w") as f:
         json.dump(metadata.model_dump(), f, indent=2)
 
-    # Identifiers file
     with open(os.path.join(output_dir, "identifiers.json"), "w") as f:
         json.dump(["<blank>"], f)
 
 
-# ---------------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------------
-
 def build_dataset(csv_path: str, output_dir: str, train_ratio=0.9):
     rows = load_chess_rows(csv_path)
 
-    # Shuffle + split
     np.random.shuffle(rows)
     split = int(len(rows) * train_ratio)
     train_rows = rows[:split]
@@ -185,7 +169,7 @@ def build_dataset(csv_path: str, output_dir: str, train_ratio=0.9):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--csv", type=str, required=True, help="Path to CSV with FEN, Best_Move")
+    parser.add_argument("--csv", type=str, required=True, help="Path to chess positions csv")
     parser.add_argument("--out", type=str, default="data/chess_trm")
     parser.add_argument("--seed", type=int, default=42)
 
