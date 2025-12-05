@@ -371,6 +371,13 @@ Split: Test Set (Unique Base Solution Z)
 
 Note that we limit the test set to the **"canonical" orientation only** (no transformations and a single mask pattern), to reduce evaluation time. Generating 8x augmentations for evaluation is unnecessary. If the model has learned the concept of $N$-Queens from the training set (which included rotations), it should be able to solve the 0-degree test case perfectly.
 
+#### Running the job
+
+```bash
+bsub < job-n_queens.sh          # All solutions
+bsub < job-n_queens_unamb.sh    # Unambiguous solutions only
+```
+
 ### Sudoku Extreme
 
 To run Sudoku Extreme, we first generated the dataset as stated in the authors [`src/README.md`](src/README.md). After this, we simply ran the jobscript `job-sudoku.sh` on DTU HPC to obtain the results discussed in the project.
@@ -413,13 +420,35 @@ python dataset/visualize_hanoi.py --dir data/hanoi_state/train
 ```
 
 ### Chess Move Prediction
+
 The 200k subset of the lichess open database: https://database.lichess.org/#evals exists in `chess_200k.csv`, but if a different size subset is needed, it can be created via `create_chess_csv.py`.
 
-The chess dataset can be built in the right format via
+The chess dataset can be built in the right format (from the `src/` folder) via
+
 ```bash
-build_chess.sh
+./build_chess.sh
 ```
+
 Then run the job script
+
 ```bash
-bsub < chess.sh
-``` 
+bsub < job-chess.sh
+```
+
+### Math Arithmetic
+
+#### Generate the data
+
+From `src/`, run:
+
+```bash
+./build_arithmetic.sh
+```
+
+#### Run the job
+
+From the main repo folder, run:
+
+```bash
+bsub < job-arithmetic.sh
+```
