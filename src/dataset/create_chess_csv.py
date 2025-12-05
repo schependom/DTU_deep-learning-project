@@ -1,24 +1,23 @@
 import csv
 from datasets import load_dataset
 
+"""
+This document loads a subsection of the lichess chess move set and writes it to a csv, which is then used for build_chess_dataset.py
+"""
+
+N = 200_000
+
 def extract_best_move(line_str):
     if not line_str:
         return None
-    # Split the PV line by spaces and grab the first move
     return line_str.split()[0]
 
 def main():
-    # 1. Load in streaming mode (no massive download required)
-    print("Connecting to dataset stream...")
     ds = load_dataset("Lichess/chess-position-evaluations", split="train", streaming=True)
 
-    # 2. Limit to the first 100,000 examples
-    # The .take() method ensures the script stops processing automatically
-    subset = ds.take(200_000)
+    subset = ds.take(N)
 
     output_file = "chess_200k.csv"
-    
-    print(f"Extracting first 100k rows to {output_file}...")
     
     with open(output_file, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
@@ -36,9 +35,8 @@ def main():
             
             count += 1
             if count % 10000 == 0:
-                print(f"Processed {count} rows...", end="\r")
+                print(f"Processed {count} rows...\n")
 
-    print(f"\nSuccessfully saved {count} rows to {output_file}.")
 
 if __name__ == "__main__":
     main()
