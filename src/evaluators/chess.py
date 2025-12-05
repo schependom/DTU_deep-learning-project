@@ -3,22 +3,19 @@ import torch.distributed as dist
 import wandb
 from typing import Optional
 
-# --- Helper: decode move token back into moves ---
-# Must match your uci_to_move_id encoding
 def idx_to_square(idx: int) -> str:
     file = idx % 8
     rank = idx // 8
     return "abcdefgh"[file] + str(rank + 1)
 
 def move_id_to_uci(move_id: int) -> str:
-    # Promotion collapsing: no guarantee of promo letter
     from_idx = move_id // 64
     to_idx = move_id % 64
     return idx_to_square(from_idx) + idx_to_square(to_idx)
 
 
 class ChessEvaluator:
-    required_outputs = ["preds"]
+    required_outputs = ["preds", "logits"]
 
     def __init__(self, data_path: str, eval_metadata, **kwargs):
         self.data_path = data_path
@@ -45,16 +42,27 @@ class ChessEvaluator:
         labels = batch["labels"]
         logits = preds["preds"]
 
-        # Move tokens are only at position 0
         label_ids = labels[:, 0].cpu()           # (B,)
         logits_cpu = logits.cpu()                # (B, V)
+
+
+        if "logits" not in preds:
+            print("Warning: 'logits' missing from evaluator input. Check return_keys.")
+            return
+
+        full_logits = preds["logits"]
+
+        move_logits = full_logits[:, 0, :]
+        
+        logits_cpu = move_logits.cpu().float() 
+
+        label_ids = labels[:, 0].cpu()           # (B,)
         inputs_cpu = inputs.cpu()
 
         for i in range(label_ids.shape[0]):
             self.total += 1
             true_id = label_ids[i].item()
 
-            # Top-k predictions
             topk_vals, topk_ids = torch.topk(logits_cpu[i], k=5)
             topk_ids = topk_ids.tolist()
 
@@ -70,7 +78,6 @@ class ChessEvaluator:
             if true_id in topk_ids[:5]:
                 self.correct_top5 += 1
 
-            # Save some mistakes for logging
             if topk_ids[0] != true_id and len(self.sample_errors) < 5:
                 fen_tokens = inputs_cpu[i][1:].tolist()   # skip label token
                 self.sample_errors.append({
@@ -90,7 +97,6 @@ class ChessEvaluator:
             self.total
         ], dtype=torch.float64, device="cuda")
 
-        # distributed reduction
         if world_size > 1:
             dist.all_reduce(tensor, op=dist.ReduceOp.SUM)
 
